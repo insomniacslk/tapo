@@ -28,7 +28,7 @@ func main() {
 
 	var logger *log.Logger
 	if *flagDebug {
-		logger = log.New(os.Stderr, "tapo", log.Ltime|log.Lshortfile)
+		logger = log.New(os.Stderr, "[tapo] ", log.Ltime|log.Lshortfile)
 	}
 	p100 := tapo.NewP100(ip, *flagEmail, *flagPassword, logger)
 	if err := p100.Login(*flagEmail, *flagPassword); err != nil {
@@ -39,6 +39,12 @@ func main() {
 		log.Fatalf("Failed to get device info: %v", err)
 	}
 	printDeviceInfo(info)
+
+	usage, err := p100.GetDeviceUsage()
+	if err != nil {
+		log.Fatalf("Failed to get device usage: %v", err)
+	}
+	printDeviceUsage(usage)
 
 	switch strings.ToLower(cmd) {
 	case "on":
@@ -57,6 +63,7 @@ func main() {
 }
 
 func printDeviceInfo(i *tapo.P100DeviceInfo) {
+	fmt.Printf("Info:\n")
 	fmt.Printf("Device ID             : %s\n", i.DeviceID)
 	fmt.Printf("FW version            : %s\n", i.FWVersion)
 	fmt.Printf("HW version            : %s\n", i.HWVersion)
@@ -84,4 +91,21 @@ func printDeviceInfo(i *tapo.P100DeviceInfo) {
 	fmt.Printf("Region                : %s\n", i.Region)
 	fmt.Printf("Time Diff             : %d\n", i.TimeDiff)
 	fmt.Printf("Lang                  : %s\n", i.Lang)
+	fmt.Printf("\n")
+}
+
+func printDeviceUsage(u *tapo.DeviceUsage) {
+	fmt.Printf("Time usage:\n")
+	fmt.Printf("  Today        : %d minutes\n", u.TimeUsage.Today)
+	fmt.Printf("  Past 7 days  : %d minutes\n", u.TimeUsage.Past7)
+	fmt.Printf("  Past 30 days : %d minutes\n", u.TimeUsage.Past30)
+	fmt.Printf("Power usage:\n")
+	fmt.Printf("  Today        : %d kWh\n", u.PowerUsage.Today)
+	fmt.Printf("  Past 7 days  : %d kWh\n", u.PowerUsage.Past7)
+	fmt.Printf("  Past 30 days : %d kWh\n", u.PowerUsage.Past30)
+	fmt.Printf("Saved power:\n")
+	fmt.Printf("  Today        : %d kWh\n", u.SavedPower.Today)
+	fmt.Printf("  Past 7 days  : %d kWh\n", u.SavedPower.Past7)
+	fmt.Printf("  Past 30 days : %d kWh\n", u.SavedPower.Past30)
+	fmt.Printf("\n")
 }

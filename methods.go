@@ -62,8 +62,7 @@ func NewLoginDeviceRequest(username, password string) *LoginDeviceRequest {
 	hex.Encode(hexsha, tmp[:])
 	r.Params.Username = base64.StdEncoding.EncodeToString(hexsha)
 	r.Params.Password = base64.StdEncoding.EncodeToString([]byte(password))
-	now := time.Now()
-	r.RequestTimeMils = int(now.UnixMilli())
+	r.RequestTimeMils = int(time.Now().UnixMilli())
 	return &r
 }
 
@@ -110,10 +109,9 @@ type GetDeviceInfoResponse struct {
 }
 
 func NewGetDeviceInfoRequest() *GetDeviceInfoRequest {
-	now := time.Now()
 	return &GetDeviceInfoRequest{
 		Method:          "get_device_info",
-		RequestTimeMils: int(now.UnixMilli()),
+		RequestTimeMils: int(time.Now().UnixMilli()),
 	}
 }
 
@@ -137,6 +135,58 @@ func NewSetDeviceInfoRequest(deviceOn bool) *SetDeviceInfoRequest {
 	}
 	r.Params.DeviceOn = deviceOn
 	return &r
+}
+
+type GetDeviceUsageRequest struct {
+	Method          string `json:"method"`
+	RequestTimeMils int    `json:"requestTimeMils"`
+}
+
+type DeviceUsage struct {
+	TimeUsage struct {
+		Today  int `json:"today"`
+		Past7  int `json:"past7"`
+		Past30 int `json:"past30"`
+	} `json:"time_usage"`
+	PowerUsage struct {
+		Today  int `json:"today"`
+		Past7  int `json:"past7"`
+		Past30 int `json:"past30"`
+	} `json:"power_usage"`
+	SavedPower struct {
+		Today  int `json:"today"`
+		Past7  int `json:"past7"`
+		Past30 int `json:"past30"`
+	} `json:"saved_power"`
+}
+
+type GetDeviceUsageResponse struct {
+	ErrorCode ErrorCode   `json:"error_code"`
+	Result    DeviceUsage `json:"result"`
+}
+
+func NewGetDeviceUsageRequest() *GetDeviceUsageRequest {
+	return &GetDeviceUsageRequest{
+		Method:          "get_device_usage",
+		RequestTimeMils: int(time.Now().UnixMilli()),
+	}
+}
+
+type GetEnergyUsageRequest struct {
+	Method          string `json:"method"`
+	RequestTimeMils int    `json:"requestTimeMils"`
+}
+
+type GetEnergyUsageResponse struct {
+	ErrorCode ErrorCode   `json:"error_code"`
+	Result    DeviceUsage `json:"result"`
+}
+
+func NewGetEnergyUsageRequest() *GetEnergyUsageRequest {
+	return &GetEnergyUsageRequest{
+		Method:          "get_device_usage",
+		RequestTimeMils: int(time.Now().UnixMilli()),
+	}
 }
 
 type SecurePassthroughRequest struct {

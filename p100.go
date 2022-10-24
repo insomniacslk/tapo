@@ -245,6 +245,58 @@ func (p *P100) SetDeviceInfo(deviceOn bool) error {
 	return nil
 }
 
+func (p *P100) GetDeviceUsage() (*DeviceUsage, error) {
+	if p.token == "" {
+		return nil, fmt.Errorf("not logged in")
+	}
+	request := NewGetDeviceUsageRequest()
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal get_device_usage payload: %w", err)
+	}
+	p.log.Printf("GetDeviceUsage request: %s", requestBytes)
+
+	response, err := p.securePassthrough(requestBytes)
+	if err != nil {
+		return nil, fmt.Errorf("Passthrough request failed: %w", err)
+	}
+	p.log.Printf("GetDeviceUsage response: %s", response)
+	var usageResp GetDeviceUsageResponse
+	if err := json.Unmarshal(response, &usageResp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
+	}
+	if usageResp.ErrorCode != 0 {
+		return nil, fmt.Errorf("request failed: %s", usageResp.ErrorCode)
+	}
+	return &usageResp.Result, nil
+}
+
+func (p *P100) GetEnergyUsage() (*DeviceUsage, error) {
+	if p.token == "" {
+		return nil, fmt.Errorf("not logged in")
+	}
+	request := NewGetEnergyUsageRequest()
+	requestBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal get_energy_usage payload: %w", err)
+	}
+	p.log.Printf("GetEnergyUsage request: %s", requestBytes)
+
+	response, err := p.securePassthrough(requestBytes)
+	if err != nil {
+		return nil, fmt.Errorf("Passthrough request failed: %w", err)
+	}
+	p.log.Printf("GetEnergyUsage response: %s", response)
+	var usageResp GetEnergyUsageResponse
+	if err := json.Unmarshal(response, &usageResp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
+	}
+	if usageResp.ErrorCode != 0 {
+		return nil, fmt.Errorf("request failed: %s", usageResp.ErrorCode)
+	}
+	return &usageResp.Result, nil
+}
+
 func (p *P100) encryptRequest(req []byte) (string, error) {
 	block, err := aes.NewCipher(p.session.Key)
 	if err != nil {
