@@ -211,11 +211,19 @@ func (p *P100) GetDeviceInfo() (*P100DeviceInfo, error) {
 	if infoResp.ErrorCode != 0 {
 		return nil, fmt.Errorf("request failed: %s", infoResp.ErrorCode)
 	}
+	// decode base64-encoded fields
 	decodedSSID, err := base64.StdEncoding.DecodeString(infoResp.Result.SSID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to base64-decode SSID: %w", err)
 	}
-	infoResp.Result.DecodedSSID = decodedSSID
+	infoResp.Result.DecodedSSID = string(decodedSSID)
+
+	decodedNickname, err := base64.StdEncoding.DecodeString(infoResp.Result.Nickname)
+	if err != nil {
+		return nil, fmt.Errorf("failed to base64-decode Nickname: %w", err)
+	}
+	infoResp.Result.DecodedNickname = string(decodedNickname)
+
 	return &infoResp.Result, nil
 }
 

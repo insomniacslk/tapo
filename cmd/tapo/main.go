@@ -77,7 +77,8 @@ func printDeviceInfo(i *tapo.P100DeviceInfo) {
 	fmt.Printf("Device ON             : %v\n", i.DeviceON)
 	fmt.Printf("ON time               : %d\n", i.OnTime)
 	fmt.Printf("Overheated            : %v\n", i.OverHeated)
-	fmt.Printf("Nickname              : %s\n", i.Nickname)
+	// TODO check if DecodedNickname is printable
+	fmt.Printf("Nickname              : %s (decoded: %s)\n", i.Nickname, i.DecodedNickname)
 	fmt.Printf("Location              : %s\n", i.Location)
 	fmt.Printf("Avatar                : %s\n", i.Avatar)
 	fmt.Printf("Longitude             : %d\n", i.Longitude)

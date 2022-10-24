@@ -100,7 +100,10 @@ type P100DeviceInfo struct {
 	Lang               string `json:"lang"`
 	// DecodedSSID is the decoded version of the base64-encoded SSID field. This
 	// is a computed field.
-	DecodedSSID []byte
+	DecodedSSID string
+	// DecodedNickname is the decoded version of the base64-encoded SSID field. This
+	// is a computed field.
+	DecodedNickname string
 }
 
 type GetDeviceInfoResponse struct {
