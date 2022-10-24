@@ -340,3 +340,19 @@ func (p *P100) securePassthrough(requestBytes []byte) ([]byte, error) {
 
 	return response, nil
 }
+
+func (p *P100) On() error {
+	return p.SetDeviceInfo(true)
+}
+
+func (p *P100) Off() error {
+	return p.SetDeviceInfo(false)
+}
+
+func (p *P100) IsOn() (bool, error) {
+	info, err := p.GetDeviceInfo()
+	if err != nil {
+		return false, err
+	}
+	return info.DeviceON, nil
+}
