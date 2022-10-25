@@ -38,7 +38,7 @@ func (e ErrorCode) String() string {
 		return "Invalid terminalUUID"
 	case -1501:
 		return "Invalid Request or Credentials"
-	case -1002:
+	case 1002:
 		return "Incorrect Request"
 	case -1003:
 		return "JSON formatting error"
