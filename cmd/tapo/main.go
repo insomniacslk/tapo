@@ -19,6 +19,12 @@ var (
 )
 
 func main() {
+	pflag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s <flags> [command]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy\n")
+		fmt.Fprintf(os.Stderr, "\n")
+	}
 	pflag.Parse()
 	cmd := pflag.Arg(0)
 	ip, err := netip.ParseAddr(*flagAddr)
@@ -51,7 +57,7 @@ func main() {
 		err = p100.SetDeviceInfo(true)
 	case "off":
 		err = p100.SetDeviceInfo(false)
-	case "":
+	case "info", "energy", "":
 		// no command
 		err = nil
 	default:
@@ -62,36 +68,40 @@ func main() {
 	}
 }
 
-func printDeviceInfo(i *tapo.P100DeviceInfo) {
+func printDeviceInfo(i *tapo.DeviceInfo) {
 	fmt.Printf("Info:\n")
-	fmt.Printf("Device ID             : %s\n", i.DeviceID)
-	fmt.Printf("FW version            : %s\n", i.FWVersion)
-	fmt.Printf("HW version            : %s\n", i.HWVersion)
-	fmt.Printf("Type                  : %s\n", i.Type)
-	fmt.Printf("Model                 : %s\n", i.Model)
-	fmt.Printf("MAC                   : %s\n", i.MAC)
-	fmt.Printf("HW ID                 : %s\n", i.HWID)
-	fmt.Printf("FW ID                 : %s\n", i.FWID)
-	fmt.Printf("OEM ID                : %s\n", i.OEMID)
-	fmt.Printf("Specs                 : %s\n", i.Specs)
-	fmt.Printf("Device ON             : %v\n", i.DeviceON)
-	fmt.Printf("ON time               : %d\n", i.OnTime)
-	fmt.Printf("Overheated            : %v\n", i.OverHeated)
-	// TODO check if DecodedNickname is printable
-	fmt.Printf("Nickname              : %s (decoded: %s)\n", i.Nickname, i.DecodedNickname)
-	fmt.Printf("Location              : %s\n", i.Location)
-	fmt.Printf("Avatar                : %s\n", i.Avatar)
-	fmt.Printf("Longitude             : %d\n", i.Longitude)
-	fmt.Printf("Latitude              : %d\n", i.Latitude)
-	fmt.Printf("Has Set Location Info : %v\n", i.HasSetLocationInfo)
-	fmt.Printf("IP                    : %s\n", i.IP)
+	fmt.Printf("Device ID               : %s\n", i.DeviceID)
+	fmt.Printf("FW version              : %s\n", i.FWVersion)
+	fmt.Printf("HW version              : %s\n", i.HWVersion)
+	fmt.Printf("Type                    : %s\n", i.Type)
+	fmt.Printf("Model                   : %s\n", i.Model)
+	fmt.Printf("MAC                     : %s\n", i.MAC)
+	fmt.Printf("HW ID                   : %s\n", i.HWID)
+	fmt.Printf("FW ID                   : %s\n", i.FWID)
+	fmt.Printf("OEM ID                  : %s\n", i.OEMID)
+	fmt.Printf("IP                      : %s\n", i.IP)
+	fmt.Printf("Time Diff               : %d\n", i.TimeDiff)
 	// TODO check if DecodedSSID is printable
-	fmt.Printf("SSID                  : %s (decoded: %s)\n", i.SSID, i.DecodedSSID)
-	fmt.Printf("SignalLevel           : %d\n", i.SignalLevel)
-	fmt.Printf("RSSI                  : %d\n", i.RSSI)
-	fmt.Printf("Region                : %s\n", i.Region)
-	fmt.Printf("Time Diff             : %d\n", i.TimeDiff)
-	fmt.Printf("Lang                  : %s\n", i.Lang)
+	fmt.Printf("SSID                    : %s (decoded: %s)\n", i.SSID, i.DecodedSSID)
+	fmt.Printf("RSSI                    : %d\n", i.RSSI)
+	fmt.Printf("SignalLevel             : %d\n", i.SignalLevel)
+	fmt.Printf("Latitude                : %d\n", i.Latitude)
+	fmt.Printf("Longitude               : %d\n", i.Longitude)
+	fmt.Printf("Lang                    : %s\n", i.Lang)
+	fmt.Printf("Avatar                  : %s\n", i.Avatar)
+	fmt.Printf("Region                  : %s\n", i.Region)
+	fmt.Printf("Specs                   : %s\n", i.Specs)
+	// TODO check if DecodedNickname is printable
+	fmt.Printf("Nickname                : %s (decoded: %s)\n", i.Nickname, i.DecodedNickname)
+	fmt.Printf("Has Set Location Info   : %v\n", i.HasSetLocationInfo)
+	fmt.Printf("Device ON               : %v\n", i.DeviceON)
+	fmt.Printf("ON time                 : %d\n", i.OnTime)
+	fmt.Printf("Default states\n")
+	fmt.Printf("  Type                  : %s\n", i.DefaultStates.Type)
+	fmt.Printf("  State                 : %s\n", string(*i.DefaultStates.State))
+	fmt.Printf("Overheated              : %v\n", i.OverHeated)
+	fmt.Printf("Power Protection Status : %s\n", i.PowerProtectionStatus)
+	fmt.Printf("Location                : %s\n", i.Location)
 	fmt.Printf("\n")
 }
 

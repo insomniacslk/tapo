@@ -188,7 +188,7 @@ func (p *P100) Login(username, password string) error {
 	return nil
 }
 
-func (p *P100) GetDeviceInfo() (*P100DeviceInfo, error) {
+func (p *P100) GetDeviceInfo() (*DeviceInfo, error) {
 	if p.token == "" {
 		return nil, fmt.Errorf("not logged in")
 	}

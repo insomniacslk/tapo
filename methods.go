@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -71,7 +72,8 @@ type GetDeviceInfoRequest struct {
 	RequestTimeMils int    `json:"requestTimeMils"`
 }
 
-type P100DeviceInfo struct {
+// TODO differentiate fields between P100 and P110
+type DeviceInfo struct {
 	DeviceID           string `json:"device_id"`
 	FWVersion          string `json:"fw_ver"`
 	HWVersion          string `json:"hw_ver"`
@@ -81,34 +83,40 @@ type P100DeviceInfo struct {
 	HWID               string `json:"hw_id"`
 	FWID               string `json:"fw_id"`
 	OEMID              string `json:"oem_id"`
+	IP                 string `json:"ip"`
+	TimeDiff           int    `json:"time_diff"`
+	SSID               string `json:"ssid"`
+	RSSI               int    `json:"rssi"`
+	SignalLevel        int    `json:"signal_level"`
+	Latitude           int    `json:"latitude"`
+	Longitude          int    `json:"longitude"`
+	Lang               string `json:"lang"`
+	Avatar             string `json:"avatar"`
+	Region             string `json:"region"`
 	Specs              string `json:"specs"`
+	Nickname           string `json:"nickname"`
+	HasSetLocationInfo bool   `json:"has_set_location_info"`
 	DeviceON           bool   `json:"device_on"`
 	OnTime             int    `json:"on_time"`
-	OverHeated         bool   `json:"overheated"`
-	Nickname           string `json:"nickname"`
-	Location           string `json:"location"`
-	Avatar             string `json:"avatar"`
-	Longitude          int    `json:"longitude"`
-	Latitude           int    `json:"latitude"`
-	HasSetLocationInfo bool   `json:"has_set_location_info"`
-	IP                 string `json:"ip"`
-	SSID               string `json:"ssid"`
-	SignalLevel        int    `json:"signal_level"`
-	RSSI               int    `json:"rssi"`
-	Region             string `json:"region"`
-	TimeDiff           int    `json:"time_diff"`
-	Lang               string `json:"lang"`
-	// DecodedSSID is the decoded version of the base64-encoded SSID field. This
-	// is a computed field.
+	DefaultStates      struct {
+		Type string `json:"type"`
+		// TODO add the structure for State
+		State *json.RawMessage `json:"state"`
+	} `json:"default_states"`
+	OverHeated            bool   `json:"overheated"`
+	PowerProtectionStatus string `json:"power_protection_status,omitempty"`
+	Location              string `json:"location,omitempty"`
+
+	// Computed values below.
+	// DecodedSSID is the decoded version of the base64-encoded SSID field.
 	DecodedSSID string
-	// DecodedNickname is the decoded version of the base64-encoded SSID field. This
-	// is a computed field.
+	// DecodedNickname is the decoded version of the base64-encoded Nickname field.
 	DecodedNickname string
 }
 
 type GetDeviceInfoResponse struct {
-	ErrorCode ErrorCode      `json:"error_code"`
-	Result    P100DeviceInfo `json:"result"`
+	ErrorCode ErrorCode  `json:"error_code"`
+	Result    DeviceInfo `json:"result"`
 }
 
 func NewGetDeviceInfoRequest() *GetDeviceInfoRequest {
