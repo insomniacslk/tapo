@@ -46,11 +46,17 @@ func main() {
 	}
 	printDeviceInfo(info)
 
-	usage, err := p100.GetDeviceUsage()
+	dUsage, err := p100.GetDeviceUsage()
 	if err != nil {
 		log.Fatalf("Failed to get device usage: %v", err)
 	}
-	printDeviceUsage(usage)
+	printDeviceUsage(dUsage)
+
+	eUsage, err := p100.GetEnergyUsage()
+	if err != nil {
+		log.Fatalf("Failed to get energy usage: %v", err)
+	}
+	printEnergyUsage(eUsage)
 
 	switch strings.ToLower(cmd) {
 	case "on":
@@ -107,16 +113,30 @@ func printDeviceInfo(i *tapo.DeviceInfo) {
 
 func printDeviceUsage(u *tapo.DeviceUsage) {
 	fmt.Printf("Time usage:\n")
-	fmt.Printf("  Today        : %d minutes\n", u.TimeUsage.Today)
-	fmt.Printf("  Past 7 days  : %d minutes\n", u.TimeUsage.Past7)
-	fmt.Printf("  Past 30 days : %d minutes\n", u.TimeUsage.Past30)
+	fmt.Printf("  Today                 : %d minutes\n", u.TimeUsage.Today)
+	fmt.Printf("  Past 7 days           : %d minutes\n", u.TimeUsage.Past7)
+	fmt.Printf("  Past 30 days          : %d minutes\n", u.TimeUsage.Past30)
+	fmt.Printf("\n")
 	fmt.Printf("Power usage:\n")
-	fmt.Printf("  Today        : %d kWh\n", u.PowerUsage.Today)
-	fmt.Printf("  Past 7 days  : %d kWh\n", u.PowerUsage.Past7)
-	fmt.Printf("  Past 30 days : %d kWh\n", u.PowerUsage.Past30)
+	fmt.Printf("  Today                 : %d kWh\n", u.PowerUsage.Today)
+	fmt.Printf("  Past 7 days           : %d kWh\n", u.PowerUsage.Past7)
+	fmt.Printf("  Past 30 days          : %d kWh\n", u.PowerUsage.Past30)
+	fmt.Printf("\n")
 	fmt.Printf("Saved power:\n")
-	fmt.Printf("  Today        : %d kWh\n", u.SavedPower.Today)
-	fmt.Printf("  Past 7 days  : %d kWh\n", u.SavedPower.Past7)
-	fmt.Printf("  Past 30 days : %d kWh\n", u.SavedPower.Past30)
+	fmt.Printf("  Today                 : %d kWh\n", u.SavedPower.Today)
+	fmt.Printf("  Past 7 days           : %d kWh\n", u.SavedPower.Past7)
+	fmt.Printf("  Past 30 days          : %d kWh\n", u.SavedPower.Past30)
+	fmt.Printf("\n")
+}
+
+func printEnergyUsage(u *tapo.EnergyUsage) {
+	fmt.Printf("Energy usage:\n")
+	fmt.Printf("  Today runtime         : %d\n", u.TodayRuntime)
+	fmt.Printf("  Month runtime         : %d\n", u.MonthRuntime)
+	fmt.Printf("  Today energy          : %d\n", u.TodayEnergy)
+	fmt.Printf("  Month energy          : %d\n", u.MonthEnergy)
+	fmt.Printf("  Local time            : %s\n", u.LocalTime)
+	fmt.Printf("  Electricity charge    : %v\n", u.ElectricityCharge)
+	fmt.Printf("  Current power         : %d\n", u.CurrentPower)
 	fmt.Printf("\n")
 }

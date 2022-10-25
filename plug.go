@@ -279,7 +279,7 @@ func (p *P100) GetDeviceUsage() (*DeviceUsage, error) {
 	return &usageResp.Result, nil
 }
 
-func (p *P100) GetEnergyUsage() (*DeviceUsage, error) {
+func (p *P100) GetEnergyUsage() (*EnergyUsage, error) {
 	if p.token == "" {
 		return nil, fmt.Errorf("not logged in")
 	}

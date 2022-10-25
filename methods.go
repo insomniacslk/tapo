@@ -171,6 +171,16 @@ type DeviceUsage struct {
 	} `json:"saved_power"`
 }
 
+type EnergyUsage struct {
+	TodayRuntime      int    `json:"today_runtime"`
+	MonthRuntime      int    `json:"month_runtime"`
+	TodayEnergy       int    `json:"today_energy"`
+	MonthEnergy       int    `json:"month_energy"`
+	LocalTime         string `json:"local_time"`
+	ElectricityCharge [3]int `json:"electricity_charge"`
+	CurrentPower      int    `json:"current_power"`
+}
+
 type GetDeviceUsageResponse struct {
 	ErrorCode ErrorCode   `json:"error_code"`
 	Result    DeviceUsage `json:"result"`
@@ -190,12 +200,12 @@ type GetEnergyUsageRequest struct {
 
 type GetEnergyUsageResponse struct {
 	ErrorCode ErrorCode   `json:"error_code"`
-	Result    DeviceUsage `json:"result"`
+	Result    EnergyUsage `json:"result"`
 }
 
 func NewGetEnergyUsageRequest() *GetEnergyUsageRequest {
 	return &GetEnergyUsageRequest{
-		Method:          "get_device_usage",
+		Method:          "get_energy_usage",
 		RequestTimeMils: int(time.Now().UnixMilli()),
 	}
 }
