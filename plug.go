@@ -49,7 +49,7 @@ func (e ErrorCode) String() string {
 
 type Plug struct {
 	log          *log.Logger
-	addr         netip.Addr
+	Addr         netip.Addr
 	terminalUUID uuid.UUID
 	privateKey   *rsa.PrivateKey
 	publicKey    *rsa.PublicKey
@@ -64,7 +64,7 @@ func NewPlug(addr netip.Addr, email, password string, logger *log.Logger) *Plug 
 	}
 	return &Plug{
 		log:          logger,
-		addr:         addr,
+		Addr:         addr,
 		terminalUUID: uuid.New(),
 		timeout:      defaultTimeout,
 	}
@@ -102,7 +102,7 @@ func (p *Plug) Handshake() (*Session, error) {
 		return nil, fmt.Errorf("failed to marshal handshake payload: %w", err)
 	}
 	p.log.Printf("Handshake request: %s", requestBytes)
-	u := fmt.Sprintf("http://%s/app", p.addr.String())
+	u := fmt.Sprintf("http://%s/app", p.Addr.String())
 	httpresp, err := http.Post(u, "application/json", bytes.NewBuffer(requestBytes))
 	if err != nil {
 		return nil, fmt.Errorf("HTTP POST failed: %w", err)
@@ -362,7 +362,7 @@ func (p *Plug) securePassthrough(requestBytes []byte) ([]byte, error) {
 	p.log.Printf("Passthrough request: %s", passthroughRequestBytes)
 
 	// send it via http
-	u := fmt.Sprintf("http://%s/app", p.addr.String())
+	u := fmt.Sprintf("http://%s/app", p.Addr.String())
 	if p.token != "" {
 		u += "?token=" + p.token
 	}
