@@ -36,7 +36,7 @@ func main() {
 	if *flagDebug {
 		logger = log.New(os.Stderr, "[tapo] ", log.Ltime|log.Lshortfile)
 	}
-	p100 := tapo.NewP100(ip, *flagEmail, *flagPassword, logger)
+	p100 := tapo.NewPlug(ip, *flagEmail, *flagPassword, logger)
 	if err := p100.Login(*flagEmail, *flagPassword); err != nil {
 		log.Fatalf("Login failed: %v", err)
 	}

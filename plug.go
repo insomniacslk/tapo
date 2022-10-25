@@ -47,7 +47,7 @@ func (e ErrorCode) String() string {
 	}
 }
 
-type P100 struct {
+type Plug struct {
 	log          *log.Logger
 	addr         netip.Addr
 	terminalUUID uuid.UUID
@@ -58,11 +58,11 @@ type P100 struct {
 	token        string
 }
 
-func NewP100(addr netip.Addr, email, password string, logger *log.Logger) *P100 {
+func NewPlug(addr netip.Addr, email, password string, logger *log.Logger) *Plug {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
-	return &P100{
+	return &Plug{
 		log:          logger,
 		addr:         addr,
 		terminalUUID: uuid.New(),
@@ -76,7 +76,7 @@ type Session struct {
 	ID  string
 }
 
-func (p *P100) Handshake() (*Session, error) {
+func (p *Plug) Handshake() (*Session, error) {
 	// generate an RSA key pair
 	bits := 1024
 	key, err := rsa.GenerateKey(rand.Reader, bits)
@@ -151,7 +151,7 @@ func (p *P100) Handshake() (*Session, error) {
 	}, nil
 }
 
-func (p *P100) Login(username, password string) error {
+func (p *Plug) Login(username, password string) error {
 	if p.session == nil {
 		sk, err := p.Handshake()
 		if err != nil {
@@ -188,7 +188,7 @@ func (p *P100) Login(username, password string) error {
 	return nil
 }
 
-func (p *P100) GetDeviceInfo() (*DeviceInfo, error) {
+func (p *Plug) GetDeviceInfo() (*DeviceInfo, error) {
 	if p.token == "" {
 		return nil, fmt.Errorf("not logged in")
 	}
@@ -227,7 +227,7 @@ func (p *P100) GetDeviceInfo() (*DeviceInfo, error) {
 	return &infoResp.Result, nil
 }
 
-func (p *P100) SetDeviceInfo(deviceOn bool) error {
+func (p *Plug) SetDeviceInfo(deviceOn bool) error {
 	if p.token == "" {
 		return fmt.Errorf("not logged in")
 	}
@@ -253,7 +253,7 @@ func (p *P100) SetDeviceInfo(deviceOn bool) error {
 	return nil
 }
 
-func (p *P100) GetDeviceUsage() (*DeviceUsage, error) {
+func (p *Plug) GetDeviceUsage() (*DeviceUsage, error) {
 	if p.token == "" {
 		return nil, fmt.Errorf("not logged in")
 	}
@@ -279,7 +279,7 @@ func (p *P100) GetDeviceUsage() (*DeviceUsage, error) {
 	return &usageResp.Result, nil
 }
 
-func (p *P100) GetEnergyUsage() (*EnergyUsage, error) {
+func (p *Plug) GetEnergyUsage() (*EnergyUsage, error) {
 	if p.token == "" {
 		return nil, fmt.Errorf("not logged in")
 	}
@@ -305,7 +305,7 @@ func (p *P100) GetEnergyUsage() (*EnergyUsage, error) {
 	return &usageResp.Result, nil
 }
 
-func (p *P100) encryptRequest(req []byte) (string, error) {
+func (p *Plug) encryptRequest(req []byte) (string, error) {
 	block, err := aes.NewCipher(p.session.Key)
 	if err != nil {
 		return "", fmt.Errorf("aes.NewCipher failed: %w", err)
@@ -324,7 +324,7 @@ func (p *P100) encryptRequest(req []byte) (string, error) {
 	return encodedRequest, nil
 }
 
-func (p *P100) decryptResponse(resp string) ([]byte, error) {
+func (p *Plug) decryptResponse(resp string) ([]byte, error) {
 	encryptedResponse, err := base64.StdEncoding.DecodeString(resp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to base64-decode response: %w", err)
@@ -346,7 +346,7 @@ func (p *P100) decryptResponse(resp string) ([]byte, error) {
 	return response, err
 }
 
-func (p *P100) securePassthrough(requestBytes []byte) ([]byte, error) {
+func (p *Plug) securePassthrough(requestBytes []byte) ([]byte, error) {
 	// encrypt the request
 	encodedRequest, err := p.encryptRequest(requestBytes)
 	if err != nil {
@@ -401,15 +401,15 @@ func (p *P100) securePassthrough(requestBytes []byte) ([]byte, error) {
 	return response, nil
 }
 
-func (p *P100) On() error {
+func (p *Plug) On() error {
 	return p.SetDeviceInfo(true)
 }
 
-func (p *P100) Off() error {
+func (p *Plug) Off() error {
 	return p.SetDeviceInfo(false)
 }
 
-func (p *P100) IsOn() (bool, error) {
+func (p *Plug) IsOn() (bool, error) {
 	info, err := p.GetDeviceInfo()
 	if err != nil {
 		return false, err
