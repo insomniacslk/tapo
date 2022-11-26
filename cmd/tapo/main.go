@@ -18,60 +18,90 @@ var (
 	flagDebug    = pflag.BoolP("debug", "d", false, "Enable debug logs")
 )
 
+func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, error) {
+	ip, err := netip.ParseAddr(addr)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse IP address: %w", err)
+	}
+	plug := tapo.NewPlug(ip, *flagEmail, *flagPassword, logger)
+	if err := plug.Login(*flagEmail, *flagPassword); err != nil {
+		log.Fatalf("Login failed: %v", err)
+	}
+	return plug, nil
+}
+
+func cmdOn(addr, email, password string, logger *log.Logger) error {
+	plug, err := getPlug(addr, email, password, logger)
+	if err != nil {
+		return err
+	}
+	return plug.SetDeviceInfo(true)
+}
+
+func cmdOff(addr, email, password string, logger *log.Logger) error {
+	plug, err := getPlug(addr, email, password, logger)
+	if err != nil {
+		return err
+	}
+	return plug.SetDeviceInfo(false)
+}
+
+func cmdInfo(addr, email, password string, logger *log.Logger) error {
+	plug, err := getPlug(addr, email, password, logger)
+	if err != nil {
+		return err
+	}
+	info, err := plug.GetDeviceInfo()
+	if err != nil {
+		return fmt.Errorf("failed to get device info: %w", err)
+	}
+	printDeviceInfo(info)
+
+	dUsage, err := plug.GetDeviceUsage()
+	if err != nil {
+		return fmt.Errorf("failed to get device usage: %w", err)
+	}
+	printDeviceUsage(dUsage)
+
+	eUsage, err := plug.GetEnergyUsage()
+	if err != nil {
+		return fmt.Errorf("failed to get energy usage: %w", err)
+	}
+	printEnergyUsage(eUsage)
+	return nil
+}
+
 func main() {
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <flags> [command]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\n")
 		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy\n")
 		fmt.Fprintf(os.Stderr, "\n")
+		pflag.PrintDefaults()
 	}
 	pflag.Parse()
 	cmd := pflag.Arg(0)
-	ip, err := netip.ParseAddr(*flagAddr)
-	if err != nil {
-		log.Fatalf("Failed to parse IP address: %v", err)
-	}
 
 	var logger *log.Logger
 	if *flagDebug {
 		logger = log.New(os.Stderr, "[tapo] ", log.Ltime|log.Lshortfile)
 	}
-	p100 := tapo.NewPlug(ip, *flagEmail, *flagPassword, logger)
-	if err := p100.Login(*flagEmail, *flagPassword); err != nil {
-		log.Fatalf("Login failed: %v", err)
-	}
-	info, err := p100.GetDeviceInfo()
-	if err != nil {
-		log.Fatalf("Failed to get device info: %v", err)
-	}
-	printDeviceInfo(info)
 
-	dUsage, err := p100.GetDeviceUsage()
-	if err != nil {
-		log.Fatalf("Failed to get device usage: %v", err)
-	}
-	printDeviceUsage(dUsage)
-
-	eUsage, err := p100.GetEnergyUsage()
-	if err != nil {
-		log.Fatalf("Failed to get energy usage: %v", err)
-	}
-	printEnergyUsage(eUsage)
-
+	var err error
 	switch strings.ToLower(cmd) {
 	case "on":
-		err = p100.SetDeviceInfo(true)
+		err = cmdOn(*flagAddr, *flagEmail, *flagPassword, logger)
 	case "off":
-		err = p100.SetDeviceInfo(false)
+		err = cmdOff(*flagAddr, *flagEmail, *flagPassword, logger)
 	case "info", "energy", "":
-		// no command
-		err = nil
+		err = cmdInfo(*flagAddr, *flagEmail, *flagPassword, logger)
 	default:
 		log.Fatalf("Unknown command '%s'", cmd)
 	}
 	if err != nil {
 		log.Fatalf("Failed to execute command '%s': %v", cmd, err)
 	}
+
 }
 
 func printDeviceInfo(i *tapo.DeviceInfo) {
