@@ -23,7 +23,7 @@ func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, erro
 	if err != nil {
 		return nil, fmt.Errorf("Failed to parse IP address: %w", err)
 	}
-	plug := tapo.NewPlug(ip, *flagEmail, *flagPassword, logger)
+	plug := tapo.NewPlug(ip, logger)
 	if err := plug.Login(*flagEmail, *flagPassword); err != nil {
 		log.Fatalf("Login failed: %v", err)
 	}
@@ -78,7 +78,18 @@ func cmdInfo(cfg cmdCfg, addr string) error {
 }
 
 func cmdList(cfg cmdCfg) error {
-	return fmt.Errorf("command `list` not implemented yet")
+	client := tapo.NewClient(cfg.logger)
+	if err := client.Login(cfg.email, cfg.password); err != nil {
+		return err
+	}
+	devices, err := client.List()
+	if err != nil {
+		return err
+	}
+	for _, d := range devices {
+		fmt.Printf("  %+v\n", d)
+	}
+	return nil
 }
 
 func main() {

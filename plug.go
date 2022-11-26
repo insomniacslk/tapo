@@ -58,7 +58,7 @@ type Plug struct {
 	token        string
 }
 
-func NewPlug(addr netip.Addr, email, password string, logger *log.Logger) *Plug {
+func NewPlug(addr netip.Addr, logger *log.Logger) *Plug {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
