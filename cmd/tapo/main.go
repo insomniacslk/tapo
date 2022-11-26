@@ -30,24 +30,30 @@ func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, erro
 	return plug, nil
 }
 
-func cmdOn(addr, email, password string, logger *log.Logger) error {
-	plug, err := getPlug(addr, email, password, logger)
+type cmdCfg struct {
+	email    string
+	password string
+	logger   *log.Logger
+}
+
+func cmdOn(cfg cmdCfg, addr string) error {
+	plug, err := getPlug(addr, cfg.email, cfg.password, cfg.logger)
 	if err != nil {
 		return err
 	}
 	return plug.SetDeviceInfo(true)
 }
 
-func cmdOff(addr, email, password string, logger *log.Logger) error {
-	plug, err := getPlug(addr, email, password, logger)
+func cmdOff(cfg cmdCfg, addr string) error {
+	plug, err := getPlug(addr, cfg.email, cfg.password, cfg.logger)
 	if err != nil {
 		return err
 	}
 	return plug.SetDeviceInfo(false)
 }
 
-func cmdInfo(addr, email, password string, logger *log.Logger) error {
-	plug, err := getPlug(addr, email, password, logger)
+func cmdInfo(cfg cmdCfg, addr string) error {
+	plug, err := getPlug(addr, cfg.email, cfg.password, cfg.logger)
 	if err != nil {
 		return err
 	}
@@ -71,11 +77,15 @@ func cmdInfo(addr, email, password string, logger *log.Logger) error {
 	return nil
 }
 
+func cmdList(cfg cmdCfg) error {
+	return fmt.Errorf("command `list` not implemented yet")
+}
+
 func main() {
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <flags> [command]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\n")
-		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy\n")
+		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy, list\n")
 		fmt.Fprintf(os.Stderr, "\n")
 		pflag.PrintDefaults()
 	}
@@ -88,13 +98,20 @@ func main() {
 	}
 
 	var err error
+	cfg := cmdCfg{
+		email:    *flagEmail,
+		password: *flagPassword,
+		logger:   logger,
+	}
 	switch strings.ToLower(cmd) {
 	case "on":
-		err = cmdOn(*flagAddr, *flagEmail, *flagPassword, logger)
+		err = cmdOn(cfg, *flagAddr)
 	case "off":
-		err = cmdOff(*flagAddr, *flagEmail, *flagPassword, logger)
+		err = cmdOff(cfg, *flagAddr)
 	case "info", "energy", "":
-		err = cmdInfo(*flagAddr, *flagEmail, *flagPassword, logger)
+		err = cmdInfo(cfg, *flagAddr)
+	case "list":
+		err = cmdList(cfg)
 	default:
 		log.Fatalf("Unknown command '%s'", cmd)
 	}
