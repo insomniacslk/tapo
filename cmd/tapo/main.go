@@ -86,8 +86,8 @@ func cmdList(cfg cmdCfg) error {
 	if err != nil {
 		return err
 	}
-	for _, d := range devices {
-		fmt.Printf("  %+v\n", d)
+	for idx, d := range devices {
+		fmt.Printf("  %d) %s\n    model:%s, fw:%s, hw:%s, mac:%s\n", idx+1, d.DecodedAlias, d.DeviceModel, d.FwVer, d.DeviceHwVer, d.DeviceMAC)
 	}
 	return nil
 }
