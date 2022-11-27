@@ -34,6 +34,7 @@ type cmdCfg struct {
 	email    string
 	password string
 	logger   *log.Logger
+	debug    bool
 }
 
 func cmdOn(cfg cmdCfg, addr string) error {
@@ -88,6 +89,9 @@ func cmdList(cfg cmdCfg) error {
 	}
 	for idx, d := range devices {
 		fmt.Printf("  %d) %s\n    model:%s, fw:%s, hw:%s, mac:%s\n", idx+1, d.DecodedAlias, d.DeviceModel, d.FwVer, d.DeviceHwVer, d.DeviceMAC)
+		if cfg.debug {
+			fmt.Printf("    %+v\n", d)
+		}
 	}
 	return nil
 }
@@ -113,6 +117,7 @@ func main() {
 		email:    *flagEmail,
 		password: *flagPassword,
 		logger:   logger,
+		debug:    *flagDebug,
 	}
 	switch strings.ToLower(cmd) {
 	case "on":
