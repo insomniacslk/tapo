@@ -145,7 +145,6 @@ func (c *Client) List() ([]Device, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to build device list request: %w", err)
 	}
-	log.Print(string(lr))
 	resp, err := c.post(baseURL, lr)
 	if err != nil {
 		return nil, fmt.Errorf("device list request failed: %w", err)
