@@ -186,7 +186,7 @@ type Device struct {
 	HwID         string `json:"hwId"`
 	FwID         string `json:"fwId"`
 	IsSameRegion bool   `json:"isSameRegion"`
-	Staus        int    `json:"status"`
+	Status       int    `json:"status"`
 	// Computed values
 	DecodedAlias string
 }
