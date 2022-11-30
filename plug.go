@@ -42,6 +42,8 @@ func (e ErrorCode) String() string {
 		return "Incorrect Request"
 	case -1003:
 		return "JSON formatting error"
+	case 9999:
+		return "Session timeout"
 	default:
 		return fmt.Sprintf("Unknown error: %d", e)
 	}
