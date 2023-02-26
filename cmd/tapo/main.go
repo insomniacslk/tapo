@@ -19,6 +19,9 @@ var (
 )
 
 func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, error) {
+	if addr == "" {
+		return nil, fmt.Errorf("no address specified")
+	}
 	ip, err := netip.ParseAddr(addr)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to parse IP address: %w", err)
@@ -124,10 +127,12 @@ func main() {
 		err = cmdOn(cfg, *flagAddr)
 	case "off":
 		err = cmdOff(cfg, *flagAddr)
-	case "info", "energy", "":
+	case "info", "energy":
 		err = cmdInfo(cfg, *flagAddr)
 	case "list":
 		err = cmdList(cfg)
+	case "":
+		log.Fatalf("No command specified")
 	default:
 		log.Fatalf("Unknown command '%s'", cmd)
 	}
