@@ -26,10 +26,10 @@ import (
 
 var defaultTimeout = 10 * time.Second
 
-type ErrorCode int
+type TapoError int
 
-func (e ErrorCode) String() string {
-	switch e {
+func (te TapoError) Error() string {
+	switch te {
 	case 0:
 		return "Success"
 	case -1010:
@@ -42,10 +42,12 @@ func (e ErrorCode) String() string {
 		return "Incorrect Request"
 	case -1003:
 		return "JSON formatting error"
+	case 1003:
+		return "Communication error"
 	case 9999:
 		return "Session timeout"
 	default:
-		return fmt.Sprintf("Unknown error: %d", e)
+		return fmt.Sprintf("Unknown error: %d", te)
 	}
 }
 
@@ -121,7 +123,7 @@ func (p *Plug) Handshake() (*Session, error) {
 		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
 	}
 	if resp.ErrorCode != 0 {
-		return nil, fmt.Errorf("request failed: %s", resp.ErrorCode)
+		return nil, fmt.Errorf("request failed: %w (%d)", resp.ErrorCode, resp.ErrorCode)
 	}
 
 	// now decrypt the Tapo device encryption key with our public key

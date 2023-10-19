@@ -19,7 +19,7 @@ type HandshakeRequest struct {
 }
 
 type HandshakeResponse struct {
-	ErrorCode ErrorCode `json:"error_code"`
+	ErrorCode TapoError `json:"error_code"`
 	Result    struct {
 		Key string `json:"key"`
 	}
@@ -45,7 +45,7 @@ type LoginDeviceRequest struct {
 }
 
 type LoginDeviceResponse struct {
-	ErrorCode ErrorCode `json:"error_code"`
+	ErrorCode TapoError `json:"error_code"`
 	Result    struct {
 		Token string `json:"token"`
 	} `json:"result"`
@@ -115,7 +115,7 @@ type DeviceInfo struct {
 }
 
 type GetDeviceInfoResponse struct {
-	ErrorCode ErrorCode  `json:"error_code"`
+	ErrorCode TapoError  `json:"error_code"`
 	Result    DeviceInfo `json:"result"`
 }
 
@@ -134,7 +134,7 @@ type SetDeviceInfoRequest struct {
 }
 
 type SetDeviceInfoResponse struct {
-	ErrorCode ErrorCode `json:"error_code"`
+	ErrorCode TapoError `json:"error_code"`
 	Result    struct {
 		Response string `json:"response"`
 	}
@@ -182,7 +182,7 @@ type EnergyUsage struct {
 }
 
 type GetDeviceUsageResponse struct {
-	ErrorCode ErrorCode   `json:"error_code"`
+	ErrorCode TapoError   `json:"error_code"`
 	Result    DeviceUsage `json:"result"`
 }
 
@@ -199,7 +199,7 @@ type GetEnergyUsageRequest struct {
 }
 
 type GetEnergyUsageResponse struct {
-	ErrorCode ErrorCode   `json:"error_code"`
+	ErrorCode TapoError   `json:"error_code"`
 	Result    EnergyUsage `json:"result"`
 }
 
@@ -218,7 +218,7 @@ type SecurePassthroughRequest struct {
 }
 
 type SecurePassthroughResponse struct {
-	ErrorCode ErrorCode `json:"error_code"`
+	ErrorCode TapoError `json:"error_code"`
 	Result    struct {
 		Response string `json:"response"`
 	}

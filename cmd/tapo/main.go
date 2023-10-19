@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/netip"
@@ -28,6 +29,14 @@ func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, erro
 	}
 	plug := tapo.NewPlug(ip, logger)
 	if err := plug.Login(*flagEmail, *flagPassword); err != nil {
+		var te tapo.TapoError
+		if errors.As(err, &te) {
+			// if the device is running a firmware with the new KLAP protocol,
+			// print a more specific error.
+			if te == 1003 {
+				log.Fatalf("Login failed: %s. KLAP protocol not implemented yet, see https://github.com/insomniacslk/tapo/issues/1", err)
+			}
+		}
 		log.Fatalf("Login failed: %v", err)
 	}
 	return plug, nil
