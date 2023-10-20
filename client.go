@@ -3,10 +3,12 @@ package tapo
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -168,6 +170,88 @@ func (c *Client) List() ([]Device, error) {
 		devices[idx] = d
 	}
 	return deviceListResp.Result.DeviceList, nil
+}
+
+func (c *Client) Discover() (map[string]DiscoverResponse, []DiscoverResponse, error) {
+	// TODO make broadcast addresses and timeout configurable.
+	// TODO make it possible to only use one discovery method.
+	reqv2, err := hex.DecodeString("020000010000000000000000463cb5d3")
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid request v2 hex string. Bug? %w", err)
+	}
+
+	// discovery protocol v1: send a broadcast UDP message to port 9999
+	// containing a XOR'ed JSON request.
+	req := NewDiscoverV1Request()
+	reqb, err := json.Marshal(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal discovery request to JSON: %w", err)
+	}
+	encReq := make([]byte, len(reqb))
+	key := byte(DiscoverV1InitializationVector)
+	for idx := range reqb {
+		key ^= reqb[idx]
+		encReq[idx] = key
+	}
+	// send broadcast packet
+	pc, err := net.ListenPacket("udp4", "0.0.0.0:0")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to listen on packet connection: %w", err)
+	}
+	defer pc.Close()
+	addr, err := net.ResolveUDPAddr("udp4", "255.255.255.255:9999")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve broadcast address: %w", err)
+	}
+	addrv2, err := net.ResolveUDPAddr("udp4", "255.255.255.255:20002")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve broadcast address: %w", err)
+	}
+	// listen for responses in a different goroutine
+	if err := pc.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return nil, nil, fmt.Errorf("failed to set read deadline: %w", err)
+	}
+	go func() {
+		for i := 0; i < 6; i++ {
+			// send req v1
+			_, err = pc.WriteTo(encReq, addr)
+			if err != nil {
+				log.Printf("Failed to send broadcast discover v1 packet: %v", err)
+				break
+			}
+			// send req v2
+			_, err = pc.WriteTo(reqv2, addrv2)
+			if err != nil {
+				log.Printf("Failed to send broadcast discover v2 packet: %v", err)
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	}()
+	ret := make(map[string]DiscoverResponse, 0)
+	errs := make([]DiscoverResponse, 0)
+	for {
+		msg := make([]byte, 2048)
+		n, _, err := pc.ReadFrom(msg)
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				break
+			}
+			return nil, nil, fmt.Errorf("read failed: %w", err)
+		}
+		var resp DiscoverResponse
+		if err := json.Unmarshal(msg[16:n], &resp); err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal discover response to JSON: %w", err)
+		}
+		// override earlier responses with later responses
+		if resp.Result.ErrorCode != 0 {
+			errs = append(errs, resp)
+		} else {
+			ret[resp.Result.DeviceID] = resp
+		}
+	}
+
+	return ret, errs, nil
 }
 
 type Device struct {

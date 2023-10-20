@@ -108,6 +108,29 @@ func cmdList(cfg cmdCfg) error {
 	return nil
 }
 
+func cmdDiscover(cfg cmdCfg) error {
+	client := tapo.NewClient(cfg.logger)
+	devices, failed, err := client.Discover()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Found %d devices and %d errors\n", len(devices), len(failed))
+	idx := 1
+	for _, dev := range devices {
+		fmt.Printf(
+			"%d) ip=%s mac=%s type=%s model=%s deviceid=%s\n",
+			idx,
+			dev.Result.IP,
+			dev.Result.MAC,
+			dev.Result.DeviceType,
+			dev.Result.DeviceModel,
+			dev.Result.DeviceID,
+		)
+		idx++
+	}
+	return nil
+}
+
 func main() {
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <flags> [command]\n", os.Args[0])
@@ -140,6 +163,8 @@ func main() {
 		err = cmdInfo(cfg, *flagAddr)
 	case "list":
 		err = cmdList(cfg)
+	case "discover":
+		err = cmdDiscover(cfg)
 	case "":
 		log.Fatalf("No command specified")
 	default:

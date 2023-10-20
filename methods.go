@@ -10,6 +10,53 @@ import (
 	"time"
 )
 
+const DiscoverV1InitializationVector = 0xab
+
+func NewDiscoverV1Request() *DiscoverV1Request {
+	return &DiscoverV1Request{
+		System:           GetSysinfo{GetSysinfo: map[string]string{}},
+		CnCloud:          GetInfo{GetInfo: map[string]string{}},
+		IOTCommonCloud:   GetInfo{GetInfo: map[string]string{}},
+		CamIpcameraCloud: GetInfo{GetInfo: map[string]string{}},
+	}
+}
+
+type DiscoverResponse struct {
+	Result struct {
+		DeviceID          string `json:"device_id"`
+		Owner             string `json:"owner"`
+		DeviceType        string `json:"device_type"`
+		DeviceModel       string `json:"device_model"`
+		IP                string `json:"ip"`
+		MAC               string `json:"mac"`
+		IsSupportIOTCloud bool   `json:"is_support_iot_clout"`
+		ObdSrc            string `json:"obd_src"`
+		FactoryDefault    bool   `json:"factory_default"`
+		MgtEncryptSchm    struct {
+			IsSupportHTTPS bool   `json:"is_support_https"`
+			EncryptType    string `json:"encrypt_type"`
+			HTTPPort       int    `json:"http_port"`
+			Lv             int    `json:"lv"`
+		} `json:"mgt_encrypt_schm"`
+		ErrorCode int `json:"error_code"`
+	} `json:"result"`
+}
+
+type GetSysinfo struct {
+	GetSysinfo map[string]string `json:"get_sysinfo"`
+}
+
+type GetInfo struct {
+	GetInfo map[string]string `json:"get_info"`
+}
+
+type DiscoverV1Request struct {
+	System           GetSysinfo `json:"system"`
+	CnCloud          GetInfo    `json:"cnCloud"`
+	IOTCommonCloud   GetInfo    `json:"smartlife.iot.common.cloud"`
+	CamIpcameraCloud GetInfo    `json:"smartlife.cam.ipcamera.cloud"`
+}
+
 type HandshakeRequest struct {
 	Method          string `json:"method"`
 	RequestTimeMils int    `json:"requestTimeMils"`
