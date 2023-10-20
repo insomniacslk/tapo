@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"text/template"
 
 	"github.com/insomniacslk/tapo"
 	"github.com/spf13/pflag"
@@ -17,6 +18,7 @@ var (
 	flagEmail    = pflag.StringP("email", "e", "", "E-mail for login")
 	flagPassword = pflag.StringP("password", "p", "", "Password for login")
 	flagDebug    = pflag.BoolP("debug", "d", false, "Enable debug logs")
+	flagFormat   = pflag.StringP("discover-format", "f", "{{.Idx}})) ip={{.IP}} mac={{.MAC}} type={{.Type}} model={{.Model}} deviceid={{.ID}}\n", "Template for printing each line of a discovered device. It uses Go's text/template syntax")
 )
 
 func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, error) {
@@ -116,16 +118,30 @@ func cmdDiscover(cfg cmdCfg) error {
 	}
 	fmt.Printf("Found %d devices and %d errors\n", len(devices), len(failed))
 	idx := 1
+	type obj struct {
+		Idx   int
+		IP    string
+		MAC   string
+		Type  string
+		Model string
+		ID    string
+	}
+	tmpl, err := template.New("test").Parse(strings.Replace(*flagFormat, "\\n", "\n", -1))
+	if err != nil {
+		return fmt.Errorf("invalid template string: %w", err)
+	}
 	for _, dev := range devices {
-		fmt.Printf(
-			"%d) ip=%s mac=%s type=%s model=%s deviceid=%s\n",
-			idx,
-			dev.Result.IP,
-			dev.Result.MAC,
-			dev.Result.DeviceType,
-			dev.Result.DeviceModel,
-			dev.Result.DeviceID,
-		)
+		o := obj{
+			Idx:   idx,
+			IP:    dev.Result.IP,
+			MAC:   dev.Result.MAC,
+			Type:  dev.Result.DeviceType,
+			Model: dev.Result.DeviceModel,
+			ID:    dev.Result.DeviceID,
+		}
+		if err := tmpl.Execute(os.Stdout, o); err != nil {
+			return fmt.Errorf("template execution failed: %w", err)
+		}
 		idx++
 	}
 	return nil
