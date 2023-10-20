@@ -18,7 +18,7 @@ var (
 	flagEmail    = pflag.StringP("email", "e", "", "E-mail for login")
 	flagPassword = pflag.StringP("password", "p", "", "Password for login")
 	flagDebug    = pflag.BoolP("debug", "d", false, "Enable debug logs")
-	flagFormat   = pflag.StringP("discover-format", "f", "{{.Idx}})) ip={{.IP}} mac={{.MAC}} type={{.Type}} model={{.Model}} deviceid={{.ID}}\n", "Template for printing each line of a discovered device. It uses Go's text/template syntax")
+	flagFormat   = pflag.StringP("discover-format", "f", "{{.Idx}}) ip={{.IP}} mac={{.MAC}} type={{.Type}} model={{.Model}} deviceid={{.ID}}\n", "Template for printing each line of a discovered device. It uses Go's text/template syntax")
 )
 
 func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, error) {
