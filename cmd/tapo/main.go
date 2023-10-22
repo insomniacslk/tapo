@@ -1,27 +1,75 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/netip"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"text/template"
 
 	"github.com/insomniacslk/tapo"
+	"github.com/kirsle/configdir"
 	"github.com/spf13/pflag"
 )
 
+const progname = "tapo"
+
+var defaultConfigFile = path.Join(configdir.LocalConfig(progname), "config.json")
+
 var (
-	flagAddr     = pflag.StringP("addr", "a", "", "IP address of the Tapo device")
-	flagEmail    = pflag.StringP("email", "e", "", "E-mail for login")
-	flagPassword = pflag.StringP("password", "p", "", "Password for login")
-	flagDebug    = pflag.BoolP("debug", "d", false, "Enable debug logs")
-	flagFormat   = pflag.StringP("discover-format", "f", "{{.Idx}}) ip={{.IP}} mac={{.MAC}} type={{.Type}} model={{.Model}} deviceid={{.ID}}\n", "Template for printing each line of a discovered device. It uses Go's text/template syntax")
+	flagConfigFile = pflag.StringP("config", "c", defaultConfigFile, "Configuration file")
+	flagAddr       = pflag.StringP("addr", "a", "", "IP address of the Tapo device")
+	flagEmail      = pflag.StringP("email", "e", "", "E-mail for login")
+	flagPassword   = pflag.StringP("password", "p", "", "Password for login")
+	flagDebug      = pflag.BoolP("debug", "d", false, "Enable debug logs")
+	flagFormat     = pflag.StringP("discover-format", "f", "{{.Idx}}) ip={{.IP}} mac={{.MAC}} type={{.Type}} model={{.Model}} deviceid={{.ID}}\n", "Template for printing each line of a discovered device. It uses Go's text/template syntax")
 )
 
-func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, error) {
+func loadConfig(configFile string) (*cmdCfg, error) {
+	var cfg cmdCfg
+	// apply overrides at the end of this function
+	defer func() {
+		if pflag.CommandLine.Changed("email") {
+			cfg.Email = *flagEmail
+		}
+		if pflag.CommandLine.Changed("password") {
+			cfg.Password = *flagPassword
+		}
+		if pflag.CommandLine.Changed("debug") {
+			cfg.Debug = *flagDebug
+		}
+	}()
+	configPath := filepath.Dir(configFile)
+	if configPath == "" {
+		return nil, fmt.Errorf("missing/empty configuration directory")
+	}
+	err := configdir.MakePath(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("Configuration file does not exist, using defaults")
+			return &cfg, nil
+		}
+		return nil, fmt.Errorf("failed to create config path '%s': %w", configPath, err)
+	}
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &cfg, nil
+		}
+		return nil, fmt.Errorf("failed to open '%s': %w", configFile, err)
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config file: %w", err)
+	}
+	return &cfg, nil
+}
+
+func getPlug(cfg *cmdCfg, addr string) (*tapo.Plug, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("no address specified")
 	}
@@ -29,8 +77,8 @@ func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, erro
 	if err != nil {
 		return nil, fmt.Errorf("Failed to parse IP address: %w", err)
 	}
-	plug := tapo.NewPlug(ip, logger)
-	if err := plug.Login(*flagEmail, *flagPassword); err != nil {
+	plug := tapo.NewPlug(ip, cfg.logger)
+	if err := plug.Login(cfg.Email, cfg.Password); err != nil {
 		var te tapo.TapoError
 		if errors.As(err, &te) {
 			// if the device is running a firmware with the new KLAP protocol,
@@ -45,30 +93,31 @@ func getPlug(addr, email, password string, logger *log.Logger) (*tapo.Plug, erro
 }
 
 type cmdCfg struct {
-	email    string
-	password string
+	Email    string `json:"email"`
+	Password string `json:"password"`
 	logger   *log.Logger
-	debug    bool
+	Debug    bool `json:"debug"`
 }
 
-func cmdOn(cfg cmdCfg, addr string) error {
-	plug, err := getPlug(addr, cfg.email, cfg.password, cfg.logger)
+func cmdOn(cfg *cmdCfg, addr string) error {
+	plug, err := getPlug(cfg, addr)
 	if err != nil {
 		return err
 	}
 	return plug.SetDeviceInfo(true)
 }
 
-func cmdOff(cfg cmdCfg, addr string) error {
-	plug, err := getPlug(addr, cfg.email, cfg.password, cfg.logger)
+func cmdOff(cfg *cmdCfg, addr string) error {
+	plug, err := getPlug(cfg, addr)
 	if err != nil {
 		return err
 	}
 	return plug.SetDeviceInfo(false)
 }
 
-func cmdInfo(cfg cmdCfg, addr string) error {
-	plug, err := getPlug(addr, cfg.email, cfg.password, cfg.logger)
+func cmdInfo(cfg *cmdCfg, addr string) error {
+	log.Printf("CFG %+v", cfg)
+	plug, err := getPlug(cfg, addr)
 	if err != nil {
 		return err
 	}
@@ -92,9 +141,9 @@ func cmdInfo(cfg cmdCfg, addr string) error {
 	return nil
 }
 
-func cmdList(cfg cmdCfg) error {
+func cmdList(cfg *cmdCfg) error {
 	client := tapo.NewClient(cfg.logger)
-	if err := client.Login(cfg.email, cfg.password); err != nil {
+	if err := client.Login(cfg.Email, cfg.Password); err != nil {
 		return err
 	}
 	devices, err := client.List()
@@ -103,14 +152,14 @@ func cmdList(cfg cmdCfg) error {
 	}
 	for idx, d := range devices {
 		fmt.Printf("  %d) %s\n    model:%s, fw:%s, hw:%s, mac:%s\n", idx+1, d.DecodedAlias, d.DeviceModel, d.FwVer, d.DeviceHwVer, d.DeviceMAC)
-		if cfg.debug {
+		if cfg.Debug {
 			fmt.Printf("    %+v\n", d)
 		}
 	}
 	return nil
 }
 
-func cmdDiscover(cfg cmdCfg) error {
+func cmdDiscover(cfg *cmdCfg) error {
 	client := tapo.NewClient(cfg.logger)
 	devices, failed, err := client.Discover()
 	if err != nil {
@@ -158,18 +207,17 @@ func main() {
 	pflag.Parse()
 	cmd := pflag.Arg(0)
 
+	cfg, err := loadConfig(*flagConfigFile)
+	if err != nil {
+		log.Fatalf("Failed to load config file: %v", err)
+	}
+
 	var logger *log.Logger
-	if *flagDebug {
+	if cfg.Debug {
 		logger = log.New(os.Stderr, "[tapo] ", log.Ltime|log.Lshortfile)
 	}
 
-	var err error
-	cfg := cmdCfg{
-		email:    *flagEmail,
-		password: *flagPassword,
-		logger:   logger,
-		debug:    *flagDebug,
-	}
+	cfg.logger = logger
 	switch strings.ToLower(cmd) {
 	case "on":
 		err = cmdOn(cfg, *flagAddr)
