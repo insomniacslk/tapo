@@ -200,7 +200,7 @@ func main() {
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <flags> [command]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\n")
-		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy, list\n")
+		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy, list (via cloud), discover (local broadcast)\n")
 		fmt.Fprintf(os.Stderr, "\n")
 		pflag.PrintDefaults()
 	}
