@@ -84,10 +84,10 @@ func getPlug(cfg *cmdCfg, addr string) (*tapo.Plug, error) {
 			// if the device is running a firmware with the new KLAP protocol,
 			// print a more specific error.
 			if te == 1003 {
-				log.Fatalf("Login failed: %s. KLAP protocol not implemented yet, see https://github.com/insomniacslk/tapo/issues/1", err)
+				return nil, fmt.Errorf("login failed: %w. KLAP protocol not implemented yet, see https://github.com/insomniacslk/tapo/issues/1", err)
 			}
 		}
-		log.Fatalf("Login failed: %v", err)
+		return nil, fmt.Errorf("login failed: %w", err)
 	}
 	return plug, nil
 }
@@ -159,6 +159,32 @@ func cmdCloudList(cfg *cmdCfg) error {
 	return nil
 }
 
+// cmdList prints a list of all the locally-reachable devices. It runs a
+// discovery first, then it calls the info API on each device.
+func cmdList(cfg *cmdCfg) error {
+	client := tapo.NewClient(cfg.logger)
+	devices, _, err := client.Discover()
+	if err != nil {
+		return fmt.Errorf("Discovery failed: %w", err)
+	}
+	idx := 0
+	for _, device := range devices {
+		idx++
+		plug, err := getPlug(cfg, device.Result.IP.String())
+		if err != nil {
+			log.Printf("Warning: skipping plug '%s': %v\n", device.Result.IP.String(), err)
+			continue
+		}
+		info, err := plug.GetDeviceInfo()
+		if err != nil {
+			log.Printf("Warning: skipping plug '%s': %v", device.Result.IP.String(), err)
+			continue
+		}
+		fmt.Printf("%d) name=%s ip=%s mac=%s type=%s model=%s hw=%s fw=%s\n", idx, info.DecodedNickname, device.Result.IP, device.Result.MAC, device.Result.DeviceType, device.Result.DeviceModel, info.HWVersion, info.FWVersion)
+	}
+	return nil
+}
+
 func cmdDiscover(cfg *cmdCfg) error {
 	client := tapo.NewClient(cfg.logger)
 	devices, failed, err := client.Discover()
@@ -200,7 +226,7 @@ func main() {
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <flags> [command]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\n")
-		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy, cloud-list, discover (local broadcast)\n")
+		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy, cloud-list, list, discover (local broadcast)\n")
 		fmt.Fprintf(os.Stderr, "\n")
 		pflag.PrintDefaults()
 	}
@@ -227,6 +253,8 @@ func main() {
 		err = cmdInfo(cfg, *flagAddr)
 	case "cloud-list":
 		err = cmdCloudList(cfg)
+	case "list":
+		err = cmdList(cfg)
 	case "discover":
 		err = cmdDiscover(cfg)
 	case "":
