@@ -1,27 +1,19 @@
 package tapo
 
 // see https://k4czp3r.xyz/reverse-engineering/tp-link/tapo/2020/10/15/reverse-engineering-tp-link-tapo.html
+// and
+// https://github.com/petretiandrea/plugp100/blob/main/plugp100/protocol/klap_protocol.py
 
 import (
-	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"net/netip"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/mergermarket/go-pkcs7"
 )
 
 var defaultTimeout = 10 * time.Second
@@ -55,11 +47,7 @@ type Plug struct {
 	log          *log.Logger
 	Addr         netip.Addr
 	terminalUUID uuid.UUID
-	privateKey   *rsa.PrivateKey
-	publicKey    *rsa.PublicKey
-	session      *Session
-	timeout      time.Duration
-	token        string
+	session      Session
 }
 
 func NewPlug(addr netip.Addr, logger *log.Logger) *Plug {
@@ -70,130 +58,59 @@ func NewPlug(addr netip.Addr, logger *log.Logger) *Plug {
 		log:          logger,
 		Addr:         addr,
 		terminalUUID: uuid.New(),
-		timeout:      defaultTimeout,
 	}
 }
 
-type Session struct {
-	Key []byte
-	IV  []byte
-	ID  string
-}
-
-func (p *Plug) Handshake() (*Session, error) {
-	// generate an RSA key pair
-	bits := 1024
-	key, err := rsa.GenerateKey(rand.Reader, bits)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate RSA key: %w", err)
-	}
-	privkey, pubkey := key, key.Public().(*rsa.PublicKey)
-	p.privateKey = privkey
-	p.publicKey = pubkey
-	pkix, err := x509.MarshalPKIXPublicKey(pubkey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal public key to PKIX: %w", err)
-	}
-	pkixBytes := pem.EncodeToMemory(&pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: pkix,
-	})
-
-	// make a new handshake request
-	request := NewHandshakeRequest(string(pkixBytes))
-	requestBytes, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal handshake payload: %w", err)
-	}
-	p.log.Printf("Handshake request: %s", requestBytes)
-	u := fmt.Sprintf("http://%s/app", p.Addr.String())
-	httpresp, err := http.Post(u, "application/json", bytes.NewBuffer(requestBytes))
-	if err != nil {
-		return nil, fmt.Errorf("HTTP POST failed: %w", err)
-	}
-	defer httpresp.Body.Close()
-
-	httprespBytes, err := io.ReadAll(httpresp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read HTTP body: %w", err)
-	}
-	p.log.Printf("Handshake response: %s", httprespBytes)
-	var resp HandshakeResponse
-	if err := json.Unmarshal(httprespBytes, &resp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
-	}
-	if resp.ErrorCode != 0 {
-		return nil, fmt.Errorf("request failed: %w (%d)", resp.ErrorCode, resp.ErrorCode)
-	}
-
-	// now decrypt the Tapo device encryption key with our public key
-	encryptedKey, err := base64.StdEncoding.DecodeString(resp.Result.Key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to base64-decode device encryption key: %w", err)
-	}
-	sessionKey, err := rsa.DecryptPKCS1v15(rand.Reader, privkey, encryptedKey)
-	if err != nil {
-		return nil, fmt.Errorf("rsa.DecryptPKCS1v15 failed: %w", err)
-	}
-	if len(sessionKey) != 32 {
-		return nil, fmt.Errorf("session key length is not 32 bytes, got %d", len(sessionKey))
-	}
-	var sessionID string
-	for _, cookie := range httpresp.Cookies() {
-		if cookie.Name == "TP_SESSIONID" {
-			sessionID = "TP_SESSIONID=" + cookie.Value
-			break
-		}
-	}
-	if sessionID == "" {
-		return nil, fmt.Errorf("no TP_SESSIONID cookie found in HTTP response")
-	}
-	return &Session{
-		Key: sessionKey[:16],
-		IV:  sessionKey[16:],
-		ID:  sessionID,
-	}, nil
-}
-
-func (p *Plug) Login(username, password string) error {
+func (p *Plug) Handshake(username, password string) error {
 	if p.session == nil {
-		sk, err := p.Handshake()
-		if err != nil {
-			return fmt.Errorf("handshake failed: %w", err)
+		// try the newer KLAP protocol first
+		ks := KlapSession{
+			log: p.log,
 		}
-		p.session = sk
-	}
-	p.log.Printf("Session: %+v", p.session)
+		if err := ks.Handshake(p.Addr, username, password); err != nil {
+			p.log.Printf("KLAP handshake failed, trying passthrough handshake")
+			// then try the older passthrough protocol
+			ps := PassthroughSession{
+				log: p.log,
+			}
+			if err := ps.Handshake(p.Addr, username, password); err != nil {
+				return fmt.Errorf("passthrough handshake failed: %w", err)
+			}
+			request := NewLoginDeviceRequest(username, password)
+			requestBytes, err := json.Marshal(request)
+			if err != nil {
+				return fmt.Errorf("failed to marshal login_device payload: %w", err)
+			}
+			p.log.Printf("Login request: %s", requestBytes)
 
-	request := NewLoginDeviceRequest(username, password)
-	requestBytes, err := json.Marshal(request)
-	if err != nil {
-		return fmt.Errorf("failed to marshal login_device payload: %w", err)
+			response, err := ps.Request(requestBytes)
+			if err != nil {
+				return fmt.Errorf("Passthrough request failed: %w", err)
+			}
+			p.log.Printf("Login response: %s", response)
+			var loginResp LoginDeviceResponse
+			if err := json.Unmarshal(response, &loginResp); err != nil {
+				return fmt.Errorf("failed to unmarshal JSON response: %w", err)
+			}
+			if loginResp.ErrorCode != 0 {
+				return fmt.Errorf("request failed: %s", loginResp.ErrorCode)
+			}
+			if loginResp.Result.Token == "" {
+				return fmt.Errorf("empty token returned by device")
+			}
+			ps.token = loginResp.Result.Token
+			p.session = &ps
+		} else {
+			p.session = &ks
+		}
+		p.log.Printf("Session: %+v", p.session)
 	}
-	p.log.Printf("Login request: %s", requestBytes)
-
-	response, err := p.securePassthrough(requestBytes)
-	if err != nil {
-		return fmt.Errorf("Passthrough request failed: %w", err)
-	}
-	p.log.Printf("Login response: %s", response)
-	var loginResp LoginDeviceResponse
-	if err := json.Unmarshal(response, &loginResp); err != nil {
-		return fmt.Errorf("failed to unmarshal JSON response: %w", err)
-	}
-	if loginResp.ErrorCode != 0 {
-		return fmt.Errorf("request failed: %s", loginResp.ErrorCode)
-	}
-	if loginResp.Result.Token == "" {
-		return fmt.Errorf("empty token returned by device")
-	}
-	p.token = loginResp.Result.Token
 
 	return nil
 }
 
 func (p *Plug) GetDeviceInfo() (*DeviceInfo, error) {
-	if p.token == "" {
+	if p.session == nil {
 		return nil, fmt.Errorf("not logged in")
 	}
 	request := NewGetDeviceInfoRequest()
@@ -203,7 +120,7 @@ func (p *Plug) GetDeviceInfo() (*DeviceInfo, error) {
 	}
 	p.log.Printf("GetDeviceInfo request: %s", requestBytes)
 
-	response, err := p.securePassthrough(requestBytes)
+	response, err := p.session.Request(requestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("Passthrough request failed: %w", err)
 	}
@@ -232,7 +149,7 @@ func (p *Plug) GetDeviceInfo() (*DeviceInfo, error) {
 }
 
 func (p *Plug) SetDeviceInfo(deviceOn bool) error {
-	if p.token == "" {
+	if p.session == nil {
 		return fmt.Errorf("not logged in")
 	}
 	request := NewSetDeviceInfoRequest(deviceOn)
@@ -242,7 +159,7 @@ func (p *Plug) SetDeviceInfo(deviceOn bool) error {
 	}
 	p.log.Printf("SetDeviceInfo request: %s", requestBytes)
 
-	response, err := p.securePassthrough(requestBytes)
+	response, err := p.session.Request(requestBytes)
 	if err != nil {
 		return fmt.Errorf("Passthrough request failed: %w", err)
 	}
@@ -258,7 +175,7 @@ func (p *Plug) SetDeviceInfo(deviceOn bool) error {
 }
 
 func (p *Plug) GetDeviceUsage() (*DeviceUsage, error) {
-	if p.token == "" {
+	if p.session == nil {
 		return nil, fmt.Errorf("not logged in")
 	}
 	request := NewGetDeviceUsageRequest()
@@ -268,7 +185,7 @@ func (p *Plug) GetDeviceUsage() (*DeviceUsage, error) {
 	}
 	p.log.Printf("GetDeviceUsage request: %s", requestBytes)
 
-	response, err := p.securePassthrough(requestBytes)
+	response, err := p.session.Request(requestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("Passthrough request failed: %w", err)
 	}
@@ -284,7 +201,7 @@ func (p *Plug) GetDeviceUsage() (*DeviceUsage, error) {
 }
 
 func (p *Plug) GetEnergyUsage() (*EnergyUsage, error) {
-	if p.token == "" {
+	if p.session == nil {
 		return nil, fmt.Errorf("not logged in")
 	}
 	request := NewGetEnergyUsageRequest()
@@ -294,7 +211,7 @@ func (p *Plug) GetEnergyUsage() (*EnergyUsage, error) {
 	}
 	p.log.Printf("GetEnergyUsage request: %s", requestBytes)
 
-	response, err := p.securePassthrough(requestBytes)
+	response, err := p.session.Request(requestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("Passthrough request failed: %w", err)
 	}
@@ -307,102 +224,6 @@ func (p *Plug) GetEnergyUsage() (*EnergyUsage, error) {
 		return nil, fmt.Errorf("request failed: %s", usageResp.ErrorCode)
 	}
 	return &usageResp.Result, nil
-}
-
-func (p *Plug) encryptRequest(req []byte) (string, error) {
-	block, err := aes.NewCipher(p.session.Key)
-	if err != nil {
-		return "", fmt.Errorf("aes.NewCipher failed: %w", err)
-	}
-	encrypter := cipher.NewCBCEncrypter(block, p.session.IV)
-	paddedRequestBytes, err := pkcs7.Pad(req, aes.BlockSize)
-	if err != nil {
-		return "", fmt.Errorf("pkcs7.Pad failed: %w", err)
-	}
-	encryptedRequest := make([]byte, len(paddedRequestBytes))
-	encrypter.CryptBlocks(encryptedRequest, paddedRequestBytes)
-
-	// now base64-encode the request
-	encodedRequest := base64.StdEncoding.EncodeToString(encryptedRequest)
-	encodedRequest = strings.Replace(encodedRequest, "\r\n", "", -1)
-	return encodedRequest, nil
-}
-
-func (p *Plug) decryptResponse(resp string) ([]byte, error) {
-	encryptedResponse, err := base64.StdEncoding.DecodeString(resp)
-	if err != nil {
-		return nil, fmt.Errorf("failed to base64-decode response: %w", err)
-	}
-
-	block, err := aes.NewCipher(p.session.Key)
-	if err != nil {
-		return nil, fmt.Errorf("aes.NewCipher failed: %w", err)
-	}
-	encrypter := cipher.NewCBCDecrypter(block, p.session.IV)
-
-	paddedResponse := make([]byte, len(encryptedResponse))
-	encrypter.CryptBlocks(paddedResponse, encryptedResponse)
-
-	response, err := pkcs7.Unpad(paddedResponse, aes.BlockSize)
-	if err != nil {
-		return nil, fmt.Errorf("pkcs7.Pad failed: %w", err)
-	}
-	return response, err
-}
-
-func (p *Plug) securePassthrough(requestBytes []byte) ([]byte, error) {
-	// encrypt the request
-	encodedRequest, err := p.encryptRequest(requestBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt request")
-	}
-
-	// wrap it in a secure_passthrough request
-	passthroughRequest := NewSecurePassthroughRequest(encodedRequest)
-	passthroughRequestBytes, err := json.Marshal(&passthroughRequest)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal securePassthrough payload: %w", err)
-	}
-	p.log.Printf("Passthrough request: %s", passthroughRequestBytes)
-
-	// send it via http
-	u := fmt.Sprintf("http://%s/app", p.Addr.String())
-	if p.token != "" {
-		u += "?token=" + p.token
-	}
-	req, err := http.NewRequest("POST", u, bytes.NewBuffer(passthroughRequestBytes))
-	if err != nil {
-		return nil, fmt.Errorf("http.NewRequest failed: %w", err)
-	}
-	req.Header.Set("Cookie", p.session.ID)
-	req.Close = true
-	client := http.Client{Timeout: p.timeout}
-	httpresp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP POST failed: %w", err)
-	}
-	defer httpresp.Body.Close()
-
-	// handle JSON response
-	httprespBytes, err := io.ReadAll(httpresp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read HTTP body: %w", err)
-	}
-	p.log.Printf("Passthrough response: %s", httprespBytes)
-	var resp SecurePassthroughResponse
-	if err := json.Unmarshal(httprespBytes, &resp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
-	}
-	if resp.ErrorCode != 0 {
-		return nil, fmt.Errorf("request failed: %s", resp.ErrorCode)
-	}
-	// decrypt response
-	response, err := p.decryptResponse(resp.Result.Response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt response: %w", err)
-	}
-
-	return response, nil
 }
 
 func (p *Plug) On() error {

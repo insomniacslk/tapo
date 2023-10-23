@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/netip"
@@ -77,16 +76,9 @@ func getPlug(cfg *cmdCfg, addr string) (*tapo.Plug, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Failed to parse IP address: %w", err)
 	}
+
 	plug := tapo.NewPlug(ip, cfg.logger)
-	if err := plug.Login(cfg.Email, cfg.Password); err != nil {
-		var te tapo.TapoError
-		if errors.As(err, &te) {
-			// if the device is running a firmware with the new KLAP protocol,
-			// print a more specific error.
-			if te == 1003 {
-				return nil, fmt.Errorf("login failed: %w. KLAP protocol not implemented yet, see https://github.com/insomniacslk/tapo/issues/1", err)
-			}
-		}
+	if err := plug.Handshake(cfg.Email, cfg.Password); err != nil {
 		return nil, fmt.Errorf("login failed: %w", err)
 	}
 	return plug, nil
