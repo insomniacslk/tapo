@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/insomniacslk/xjson"
 )
 
 const DiscoverV1InitializationVector = 0xab
@@ -23,15 +25,15 @@ func NewDiscoverV1Request() *DiscoverV1Request {
 
 type DiscoverResponse struct {
 	Result struct {
-		DeviceID          string `json:"device_id"`
-		Owner             string `json:"owner"`
-		DeviceType        string `json:"device_type"`
-		DeviceModel       string `json:"device_model"`
-		IP                string `json:"ip"`
-		MAC               string `json:"mac"`
-		IsSupportIOTCloud bool   `json:"is_support_iot_clout"`
-		ObdSrc            string `json:"obd_src"`
-		FactoryDefault    bool   `json:"factory_default"`
+		DeviceID          string             `json:"device_id"`
+		Owner             string             `json:"owner"`
+		DeviceType        string             `json:"device_type"`
+		DeviceModel       string             `json:"device_model"`
+		IP                xjson.IP           `json:"ip"`
+		MAC               xjson.HardwareAddr `json:"mac"`
+		IsSupportIOTCloud bool               `json:"is_support_iot_clout"`
+		ObdSrc            string             `json:"obd_src"`
+		FactoryDefault    bool               `json:"factory_default"`
 		MgtEncryptSchm    struct {
 			IsSupportHTTPS bool   `json:"is_support_https"`
 			EncryptType    string `json:"encrypt_type"`

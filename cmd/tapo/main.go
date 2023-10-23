@@ -182,8 +182,8 @@ func cmdDiscover(cfg *cmdCfg) error {
 	for _, dev := range devices {
 		o := obj{
 			Idx:   idx,
-			IP:    dev.Result.IP,
-			MAC:   dev.Result.MAC,
+			IP:    dev.Result.IP.String(),
+			MAC:   dev.Result.MAC.String(),
 			Type:  dev.Result.DeviceType,
 			Model: dev.Result.DeviceModel,
 			ID:    dev.Result.DeviceID,
