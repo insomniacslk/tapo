@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -254,23 +255,59 @@ func (c *Client) Discover() (map[string]DiscoverResponse, []DiscoverResponse, er
 	return ret, errs, nil
 }
 
+// Tapo uses a non-standard MAC representation, a 12-char hex string with no
+// separators. Custom unmarshalling here it goes.
+type tapoMAC net.HardwareAddr
+
+func (tm tapoMAC) String() string {
+	h := net.HardwareAddr(tm)
+	return h.String()
+}
+
+func stripQuotes(s string) (string, error) {
+	if len(s) < 2 || (s[0] != '"' && s[len(s)-1] != '"') {
+		return s, errors.New("not a properly double-quoted string")
+	}
+	return s[1 : len(s)-1], nil
+}
+
+func (tm *tapoMAC) UnmarshalJSON(b []byte) error {
+	s, err := stripQuotes(string(b))
+	if err != nil {
+		return err
+	}
+	decoded, err := hex.DecodeString(s)
+	if err != nil {
+		return err
+	}
+	if len(decoded) != 6 {
+		return fmt.Errorf("invalid MAC length, want 6 bytes, got %d", len(decoded))
+	}
+	*tm = tapoMAC(decoded)
+	return nil
+}
+
+func (tm tapoMAC) MarshalJSON() ([]byte, error) {
+	return []byte("\"" + tm.String() + "\""), nil
+}
+
 type Device struct {
-	DeviceType   string `json:"deviceType"`
-	Role         int    `json:"role"`
-	FwVer        string `json:"fwVer"`
-	AppServerURL string `json:"appServerUrl"`
-	DeviceRegion string `json:"deviceRegion"`
-	DeviceID     string `json:"deviceId"`
-	DeviceName   string `json:"deviceName"`
-	DeviceHwVer  string `json:"deviceHwVer"`
-	Alias        string `json:"alias"`
-	DeviceMAC    string `json:"deviceMac"`
-	OemID        string `json:"oemId"`
-	DeviceModel  string `json:"deviceModel"`
-	HwID         string `json:"hwId"`
-	FwID         string `json:"fwId"`
-	IsSameRegion bool   `json:"isSameRegion"`
-	Status       int    `json:"status"`
+	DeviceType   string  `json:"deviceType"`
+	Role         int     `json:"role"`
+	FwVer        string  `json:"fwVer"`
+	AppServerURL string  `json:"appServerUrl"`
+	DeviceRegion string  `json:"deviceRegion"`
+	DeviceID     string  `json:"deviceId"`
+	DeviceName   string  `json:"deviceName"`
+	DeviceHwVer  string  `json:"deviceHwVer"`
+	Alias        string  `json:"alias"`
+	DeviceMAC    tapoMAC `json:"deviceMac"`
+	OemID        string  `json:"oemId"`
+	DeviceModel  string  `json:"deviceModel"`
+	HwID         string  `json:"hwId"`
+	FwID         string  `json:"fwId"`
+	IsSameRegion bool    `json:"isSameRegion"`
+	Status       int     `json:"status"`
 	// Computed values
 	DecodedAlias string
 }
