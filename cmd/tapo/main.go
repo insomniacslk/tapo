@@ -141,12 +141,12 @@ func cmdInfo(cfg *cmdCfg, addr string) error {
 	return nil
 }
 
-func cmdList(cfg *cmdCfg) error {
+func cmdCloudList(cfg *cmdCfg) error {
 	client := tapo.NewClient(cfg.logger)
-	if err := client.Login(cfg.Email, cfg.Password); err != nil {
+	if err := client.CloudLogin(cfg.Email, cfg.Password); err != nil {
 		return err
 	}
-	devices, err := client.List()
+	devices, err := client.CloudList()
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,7 @@ func main() {
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <flags> [command]\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\n")
-		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy, list (via cloud), discover (local broadcast)\n")
+		fmt.Fprintf(os.Stderr, "command is one of on, off, info, energy, cloud-list, discover (local broadcast)\n")
 		fmt.Fprintf(os.Stderr, "\n")
 		pflag.PrintDefaults()
 	}
@@ -225,8 +225,8 @@ func main() {
 		err = cmdOff(cfg, *flagAddr)
 	case "info", "energy":
 		err = cmdInfo(cfg, *flagAddr)
-	case "list":
-		err = cmdList(cfg)
+	case "cloud-list":
+		err = cmdCloudList(cfg)
 	case "discover":
 		err = cmdDiscover(cfg)
 	case "":

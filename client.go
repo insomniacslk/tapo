@@ -114,7 +114,7 @@ func (c *Client) post(cloudURL string, data []byte) ([]byte, error) {
 	return respData, nil
 }
 
-func (c *Client) Login(username, password string) error {
+func (c *Client) CloudLogin(username, password string) error {
 	lr, err := c.buildLoginRequest(username, password)
 	if err != nil {
 		return fmt.Errorf("failed to build login request: %w", err)
@@ -143,7 +143,7 @@ func (c *Client) Login(username, password string) error {
 	return nil
 }
 
-func (c *Client) List() ([]Device, error) {
+func (c *Client) CloudList() ([]Device, error) {
 	lr, err := c.buildDeviceListRequest()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build device list request: %w", err)
