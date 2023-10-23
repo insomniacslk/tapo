@@ -116,7 +116,6 @@ func cmdOff(cfg *cmdCfg, addr string) error {
 }
 
 func cmdInfo(cfg *cmdCfg, addr string) error {
-	log.Printf("CFG %+v", cfg)
 	plug, err := getPlug(cfg, addr)
 	if err != nil {
 		return err
