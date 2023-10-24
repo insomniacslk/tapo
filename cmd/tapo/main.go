@@ -161,6 +161,7 @@ func cmdList(cfg *cmdCfg) error {
 	idx := 0
 	for _, device := range devices {
 		idx++
+		// TODO specify plug parameters from device.Result.MgtEncryptSchm
 		plug, err := getPlug(cfg, device.Result.IP.String())
 		if err != nil {
 			log.Printf("Warning: skipping plug '%s': %v\n", device.Result.IP.String(), err)
