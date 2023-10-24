@@ -64,15 +64,11 @@ func NewPlug(addr netip.Addr, logger *log.Logger) *Plug {
 func (p *Plug) Handshake(username, password string) error {
 	if p.session == nil {
 		// try the newer KLAP protocol first
-		ks := KlapSession{
-			log: p.log,
-		}
+		ks := NewKlapSession(p.log)
 		if err := ks.Handshake(p.Addr, username, password); err != nil {
 			p.log.Printf("KLAP handshake failed, trying passthrough handshake")
 			// then try the older passthrough protocol
-			ps := PassthroughSession{
-				log: p.log,
-			}
+			ps := NewPassthroughSession(p.log)
 			if err := ps.Handshake(p.Addr, username, password); err != nil {
 				return fmt.Errorf("passthrough handshake failed: %w", err)
 			}
@@ -85,7 +81,7 @@ func (p *Plug) Handshake(username, password string) error {
 
 			response, err := ps.Request(requestBytes)
 			if err != nil {
-				return fmt.Errorf("Passthrough request failed: %w", err)
+				return fmt.Errorf("request failed: %w", err)
 			}
 			p.log.Printf("Login response: %s", response)
 			var loginResp LoginDeviceResponse
@@ -99,9 +95,9 @@ func (p *Plug) Handshake(username, password string) error {
 				return fmt.Errorf("empty token returned by device")
 			}
 			ps.token = loginResp.Result.Token
-			p.session = &ps
+			p.session = ps
 		} else {
-			p.session = &ks
+			p.session = ks
 		}
 		p.log.Printf("Session: %+v", p.session)
 	}
@@ -122,7 +118,7 @@ func (p *Plug) GetDeviceInfo() (*DeviceInfo, error) {
 
 	response, err := p.session.Request(requestBytes)
 	if err != nil {
-		return nil, fmt.Errorf("Passthrough request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	p.log.Printf("GetDeviceInfo response: %s", response)
 	var infoResp GetDeviceInfoResponse
@@ -161,7 +157,7 @@ func (p *Plug) SetDeviceInfo(deviceOn bool) error {
 
 	response, err := p.session.Request(requestBytes)
 	if err != nil {
-		return fmt.Errorf("Passthrough request failed: %w", err)
+		return fmt.Errorf("request failed: %w", err)
 	}
 	p.log.Printf("SetDeviceInfo response: %s", response)
 	var infoResp SetDeviceInfoResponse
@@ -187,7 +183,7 @@ func (p *Plug) GetDeviceUsage() (*DeviceUsage, error) {
 
 	response, err := p.session.Request(requestBytes)
 	if err != nil {
-		return nil, fmt.Errorf("Passthrough request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	p.log.Printf("GetDeviceUsage response: %s", response)
 	var usageResp GetDeviceUsageResponse
@@ -213,7 +209,7 @@ func (p *Plug) GetEnergyUsage() (*EnergyUsage, error) {
 
 	response, err := p.session.Request(requestBytes)
 	if err != nil {
-		return nil, fmt.Errorf("Passthrough request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	p.log.Printf("GetEnergyUsage response: %s", response)
 	var usageResp GetEnergyUsageResponse

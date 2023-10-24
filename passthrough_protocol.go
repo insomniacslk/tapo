@@ -21,6 +21,12 @@ import (
 	"github.com/mergermarket/go-pkcs7"
 )
 
+func NewPassthroughSession(l *log.Logger) *PassthroughSession {
+	return &PassthroughSession{
+		log: l,
+	}
+}
+
 type PassthroughSession struct {
 	log        *log.Logger
 	Key        []byte
