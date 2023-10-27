@@ -26,6 +26,9 @@ var onIcon []byte
 //go:embed off.png
 var offIcon []byte
 
+//go:embed warning.png
+var warningIcon []byte
+
 var (
 	flagListen   = pflag.StringP("listen", "l", ":7490", "Listen host:port address")
 	flagUsername = pflag.StringP("username", "u", "", "TP-Link username (usually an email)")
@@ -80,6 +83,7 @@ func getListHTML(devices []Device) string {
                 console.log("failed to get status for " + ip + ": " + xmlhttp.response);
                }
            } else {
+                img.src = "/icons/warning.png";
                console.log("failed to get status for " + ip + ": " + xmlhttp.status);
            }
         }
@@ -97,7 +101,7 @@ func getListHTML(devices []Device) string {
            if (xmlhttp.status == 200) {
                updateStatus(tagID, ip);
            } else {
-               alert('failed to turn plug on, got HTTP ' + xmlhttp.status);
+               console.log('failed to turn plug on, got HTTP ' + xmlhttp.status);
            }
         }
     };
@@ -150,6 +154,7 @@ func getListHTML(devices []Device) string {
 	return ret + "  </table>\n </body>\n</html>\n"
 }
 
+// TODO consolidate into a single function for /icons/*
 func getIconOn(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "image/png")
 	if _, err := w.Write(onIcon); err != nil {
@@ -161,6 +166,13 @@ func getIconOff(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "image/png")
 	if _, err := w.Write(offIcon); err != nil {
 		log.Printf("Warning: failed to write OFF icon: %v", err)
+	}
+}
+
+func getIconWarning(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "image/png")
+	if _, err := w.Write(warningIcon); err != nil {
+		log.Printf("Warning: failed to write WARNING icon: %v", err)
 	}
 }
 
@@ -308,6 +320,7 @@ func main() {
 	http.HandleFunc("/", getRootHandler(*flagUsername, *flagPassword, *flagInterval))
 	http.HandleFunc("/icons/on.png", getIconOn)
 	http.HandleFunc("/icons/off.png", getIconOff)
+	http.HandleFunc("/icons/warning.png", getIconWarning)
 	log.Printf("Listening on %s", *flagListen)
 	if err := http.ListenAndServe(*flagListen, nil); err != nil {
 		log.Fatalf("HTTP server failed: %v", err)
