@@ -199,15 +199,16 @@ func getIconWarning(w http.ResponseWriter, r *http.Request) {
 func getRootHandler(username, password string, interval time.Duration) func(http.ResponseWriter, *http.Request) {
 	var (
 		devices []Device
+		failed  []netip.Addr
 		err     error
 	)
 	go func() {
 		for {
-			devices, err = getAllDevices(username, password)
+			devices, failed, err = getAllDevices(username, password)
 			if err != nil {
 				log.Fatalf("Failed to get devices: %v", err)
 			}
-			log.Printf("Got %d devices", len(devices))
+			log.Printf("Got %d devices and %d failed devices", len(devices), len(failed))
 			time.Sleep(interval)
 		}
 	}()
@@ -239,6 +240,12 @@ func getRootHandler(username, password string, interval time.Duration) func(http
 						if info.DeviceON {
 							msg = "on"
 						}
+					}
+				}
+				for _, d := range failed {
+					if d.String() == ip {
+						status = http.StatusGone
+						msg = fmt.Sprintf("device with IP %s failed to respond", ip)
 					}
 				}
 				if !found {
@@ -299,30 +306,33 @@ type Device struct {
 	info *tapo.DeviceInfo
 }
 
-func getAllDevices(username, password string) ([]Device, error) {
+func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 	client := tapo.NewClient(nil)
 	discovered, _, err := client.Discover()
 	if err != nil {
-		return nil, fmt.Errorf("discover failed: %w", err)
+		return nil, nil, fmt.Errorf("discover failed: %w", err)
 	}
 	var (
 		unsorted = make(map[string]Device)
+		failed   = make([]netip.Addr, 0)
 		devices  []Device
 		keys     []string
 	)
 	for _, d := range discovered {
 		addr, ok := netip.AddrFromSlice(net.IP(d.Result.IP).To4())
 		if !ok {
-			return nil, fmt.Errorf("invalid IP '%s': %w", d.Result.IP.String(), err)
+			return nil, nil, fmt.Errorf("invalid IP '%s': %w", d.Result.IP.String(), err)
 		}
 		log.Printf("Getting info for '%s'", addr)
 		plug := tapo.NewPlug(addr, nil)
 		if err := plug.Handshake(username, password); err != nil {
-			return nil, fmt.Errorf("handshake failed for %s: %w", addr, err)
+			log.Printf("Warning: handshake failed for %s: %v", addr, err)
+			failed = append(failed, addr)
+			continue
 		}
 		info, err := plug.GetDeviceInfo()
 		if err != nil {
-			return nil, fmt.Errorf("device info failed for %s: %w", d.Result.IP.String(), err)
+			return nil, nil, fmt.Errorf("device info failed for %s: %w", d.Result.IP.String(), err)
 		}
 		unsorted[info.DecodedNickname] = Device{plug: plug, info: info}
 		keys = append(keys, info.DecodedNickname)
@@ -331,7 +341,7 @@ func getAllDevices(username, password string) ([]Device, error) {
 	for _, k := range keys {
 		devices = append(devices, unsorted[k])
 	}
-	return devices, nil
+	return devices, failed, nil
 }
 
 func main() {
