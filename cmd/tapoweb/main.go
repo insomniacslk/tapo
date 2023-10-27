@@ -162,6 +162,26 @@ func getIconOn(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Waiting for the new HTTP mux in Go 1.22
+/*
+func getIcon(w http.ResponseWriter, r *http.Request) {
+       status := http.StatusOK
+       var iconBytes []byte
+       icon := r.PathValue("icon")
+       switch icon {
+       case "on":
+               iconBytes = onIcon
+       case "off":
+               iconBytes = offIcon
+       case "warning":
+               iconBytes = warningIcon
+       default:
+               status = http.StatusNotFound
+               iconBytes = nil
+       }
+}
+*/
+
 func getIconOff(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Content-Type", "image/png")
 	if _, err := w.Write(offIcon); err != nil {
@@ -318,6 +338,12 @@ func main() {
 	pflag.Parse()
 
 	http.HandleFunc("/", getRootHandler(*flagUsername, *flagPassword, *flagInterval))
+	// waiting for Go 1.22...
+	/*
+		mux := http.NewServeMux()
+		mux.HandleFunc("/", getRootHandler(*flagUsername, *flagPassword, *flagInterval))
+		mux.HandleFunc("/icons/{icon}.png", getIcon)
+	*/
 	http.HandleFunc("/icons/on.png", getIconOn)
 	http.HandleFunc("/icons/off.png", getIconOff)
 	http.HandleFunc("/icons/warning.png", getIconWarning)
