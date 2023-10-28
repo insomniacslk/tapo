@@ -332,7 +332,9 @@ func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 		}
 		info, err := plug.GetDeviceInfo()
 		if err != nil {
-			return nil, nil, fmt.Errorf("device info failed for %s: %w", d.Result.IP.String(), err)
+			log.Printf("Warning: GetDeviceInfo failed for %s: %v", addr, err)
+			failed = append(failed, addr)
+			continue
 		}
 		unsorted[info.DecodedNickname] = Device{plug: plug, info: info}
 		keys = append(keys, info.DecodedNickname)
