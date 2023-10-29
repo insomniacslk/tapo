@@ -46,6 +46,26 @@ func getListHTML(devices []Device) string {
  <head>
   <title>Tapo plugs</title>
   <style>
+  body {
+    background-color: #282828;
+    color: #d3d3d3;
+  }
+  color: white;
+  a {
+  color: white
+  }
+  a:link {
+    color: white;
+  }
+  a:visited {
+    color: white;
+  }
+  a:hover {
+    color: yellow;
+  }
+  a:active {
+    color: yellow;
+  }
   thead {
    font-weight: bold;
   }
