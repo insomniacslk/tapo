@@ -151,12 +151,13 @@ func getListHTML(devices []Device) string {
  <body>
 `, strings.Join(allIPs, ", "))
 	ret += "  <table>\n"
-	ret += "   <thead><tr><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"text.bold\">ID</td></tr></thead>\n"
-	for _, d := range devices {
+	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"text.bold\">ID</td></tr></thead>\n"
+	for idx, d := range devices {
 		ret += "   <tr>\n"
-		ret += "    <td class=\"text-bold\">" + d.info.DecodedNickname + "</em></td>\n"
-		ret += "    <td>" + d.info.IP + "</td>\n"
-		ret += "    <td>" + d.info.MAC + "</td>\n"
+		ret += fmt.Sprintf("    <td>%d</td>\n", idx+1)
+		ret += "    <td class=\"text-bold\" onclick=\"navigator.clipboard.writeText('" + d.info.DecodedNickname + "')\">" + d.info.DecodedNickname + "</td>\n"
+		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.IP + "')\">" + d.info.IP + "</td>\n"
+		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.MAC + "')\">" + d.info.MAC + "</td>\n"
 		statusTagID := "status_" + strings.Replace(d.info.IP, ".", "_", -1)
 		callback := "turnOn('" + statusTagID + "', '" + d.info.IP + "')"
 		if d.info.DeviceON {
@@ -168,7 +169,7 @@ func getListHTML(devices []Device) string {
 		}
 
 		ret += "    <td>" + state + "</td>\n"
-		ret += "    <td>" + d.info.DeviceID + "</td>\n"
+		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.DeviceID + "')\">" + d.info.DeviceID + "</td>\n"
 		ret += "   </tr>\n"
 	}
 	return ret + "  </table>\n </body>\n</html>\n"
