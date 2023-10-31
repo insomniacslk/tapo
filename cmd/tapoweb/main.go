@@ -91,8 +91,8 @@ func getListHTML(devices []Device) string {
 
     xmlhttp.onreadystatechange = function() {
         if (xmlhttp.readyState == XMLHttpRequest.DONE) { // XMLHttpRequest.DONE == 4
+           img = document.getElementById(tagID);
            if (xmlhttp.status == 200) {
-               img = document.getElementById(tagID);
                if (xmlhttp.response == "on") {
                 img.src = "/icons/on.png";
                img.setAttribute("onclick", "turnOff('" + tagID + "', '" + ip + "');");
@@ -103,7 +103,7 @@ func getListHTML(devices []Device) string {
                 console.log("failed to get status for " + ip + ": " + xmlhttp.response);
                }
            } else {
-                img.src = "/icons/warning.png";
+               img.src = "/icons/warning.png";
                console.log("failed to get status for " + ip + ": " + xmlhttp.status);
            }
         }
