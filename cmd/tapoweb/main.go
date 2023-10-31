@@ -151,7 +151,7 @@ func getListHTML(devices []Device) string {
  <body>
 `, strings.Join(allIPs, ", "))
 	ret += "  <table>\n"
-	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"text.bold\">ID</td></tr></thead>\n"
+	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"\">Energy today (kWh)</td><td class=\"text.bold\">ID</td></tr></thead>\n"
 	for idx, d := range devices {
 		ret += "   <tr>\n"
 		ret += fmt.Sprintf("    <td>%d</td>\n", idx+1)
@@ -169,6 +169,11 @@ func getListHTML(devices []Device) string {
 		}
 
 		ret += "    <td>" + state + "</td>\n"
+		energyInfo := ""
+		if d.energy != nil {
+			energyInfo = fmt.Sprintf("%.1f", float64(d.energy.TodayEnergy)/1000)
+		}
+		ret += "    <td>" + energyInfo + "</td>\n"
 		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.DeviceID + "')\">" + d.info.DeviceID + "</td>\n"
 		ret += "   </tr>\n"
 	}
@@ -323,8 +328,9 @@ func getRootHandler(username, password string, interval time.Duration) func(http
 }
 
 type Device struct {
-	plug *tapo.Plug
-	info *tapo.DeviceInfo
+	plug   *tapo.Plug
+	info   *tapo.DeviceInfo
+	energy *tapo.EnergyUsage
 }
 
 func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
@@ -357,7 +363,15 @@ func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 			failed = append(failed, addr)
 			continue
 		}
-		unsorted[info.DecodedNickname] = Device{plug: plug, info: info}
+		// TODO add more devices that support GetEnergyUsage
+		var energy *tapo.EnergyUsage
+		if info.Model == "P110" {
+			energy, err = plug.GetEnergyUsage()
+			if err != nil {
+				log.Printf("Warning: GetEnergyInfo failed for %s: %v", addr, err)
+			}
+		}
+		unsorted[info.DecodedNickname] = Device{plug: plug, info: info, energy: energy}
 		keys = append(keys, info.DecodedNickname)
 	}
 	sort.Strings(keys)
