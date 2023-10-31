@@ -138,7 +138,7 @@ func getListHTML(devices []Device) string {
            if (xmlhttp.status == 200) {
                updateStatus(tagID, ip);
            } else {
-               alert('failed to turn plug on, got HTTP ' + xmlhttp.status);
+               alert('failed to turn plug off, got HTTP ' + xmlhttp.status);
            }
         }
     };
