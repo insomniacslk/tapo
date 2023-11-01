@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BSD-2-Clause
+
 package tapo
 
 // Tapo KLAP protocol, it replicates the code at

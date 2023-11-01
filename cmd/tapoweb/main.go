@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: BSD-2-Clause
+
 package main
 
 // This program runs a small web server showing a list of Tapo devices. It must
