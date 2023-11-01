@@ -151,7 +151,7 @@ func getListHTML(devices []Device) string {
  <body>
 `, strings.Join(allIPs, ", "))
 	ret += "  <table>\n"
-	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"\">Energy today (kWh)</td><td class=\"text.bold\">ID</td></tr></thead>\n"
+	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"\">Energy<br />today (kWh)</td><td>Energy <br />month (kWh)</td><td class=\"text.bold\">ID</td></tr></thead>\n"
 	for idx, d := range devices {
 		ret += "   <tr>\n"
 		ret += fmt.Sprintf("    <td>%d</td>\n", idx+1)
@@ -169,11 +169,13 @@ func getListHTML(devices []Device) string {
 		}
 
 		ret += "    <td>" + state + "</td>\n"
-		energyInfo := ""
+		var energyInfoDay, energyInfoMonth string
 		if d.energy != nil {
-			energyInfo = fmt.Sprintf("%.1f", float64(d.energy.TodayEnergy)/1000)
+			energyInfoDay = fmt.Sprintf("%.1f", float64(d.energy.TodayEnergy)/1000)
+			energyInfoMonth = fmt.Sprintf("%.1f", float64(d.energy.MonthEnergy)/1000)
 		}
-		ret += "    <td>" + energyInfo + "</td>\n"
+		ret += "    <td>" + energyInfoDay + "</td>\n"
+		ret += "    <td>" + energyInfoMonth + "</td>\n"
 		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.DeviceID + "')\">" + d.info.DeviceID + "</td>\n"
 		ret += "   </tr>\n"
 	}
