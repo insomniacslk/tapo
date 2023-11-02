@@ -219,13 +219,13 @@ func (c *Client) Discover() (map[string]DiscoverResponse, []DiscoverResponse, er
 			// send req v1
 			_, err = pc.WriteTo(encReq, addr)
 			if err != nil {
-				log.Printf("Failed to send broadcast discover v1 packet: %v", err)
+				c.log.Printf("Failed to send broadcast discover v1 packet: %v", err)
 				break
 			}
 			// send req v2
 			_, err = pc.WriteTo(reqv2, addrv2)
 			if err != nil {
-				log.Printf("Failed to send broadcast discover v2 packet: %v", err)
+				c.log.Printf("Failed to send broadcast discover v2 packet: %v", err)
 				break
 			}
 			time.Sleep(200 * time.Millisecond)
