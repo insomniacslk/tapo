@@ -1,8 +1,6 @@
 module github.com/insomniacslk/tapo
 
-go 1.21.1
-
-toolchain go1.21.3
+go 1.21
 
 require (
 	github.com/google/uuid v1.3.1

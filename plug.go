@@ -79,13 +79,11 @@ func (p *Plug) Handshake(username, password string) error {
 			if err != nil {
 				return fmt.Errorf("failed to marshal login_device payload: %w", err)
 			}
-			p.log.Printf("Login request: %s", requestBytes)
 
 			response, err := ps.Request(requestBytes)
 			if err != nil {
 				return fmt.Errorf("request failed: %w", err)
 			}
-			p.log.Printf("Login response: %s", response)
 			var loginResp LoginDeviceResponse
 			if err := json.Unmarshal(response, &loginResp); err != nil {
 				return fmt.Errorf("failed to unmarshal JSON response: %w", err)
@@ -101,7 +99,6 @@ func (p *Plug) Handshake(username, password string) error {
 		} else {
 			p.session = ks
 		}
-		p.log.Printf("Session: %+v", p.session)
 	}
 
 	return nil
