@@ -13,6 +13,8 @@ import (
 	"strings"
 	"text/template"
 
+	kitlog "github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/insomniacslk/tapo"
 	"github.com/kirsle/configdir"
 	"github.com/spf13/pflag"
@@ -76,11 +78,23 @@ func getPlug(cfg *cmdCfg, addr string) (*tapo.Plug, error) {
 	}
 	ip, err := netip.ParseAddr(addr)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to parse IP address: %w", err)
+		return nil, fmt.Errorf("failed to parse IP address: %w", err)
 	}
 
-	plug := tapo.NewPlug(ip, cfg.logger)
-	if err := plug.Handshake(cfg.Email, cfg.Password); err != nil {
+	tapolog := kitlog.NewLogfmtLogger(kitlog.NewSyncWriter(os.Stderr))
+	tapolog = kitlog.With(tapolog, "ip", addr)
+	if cfg.Debug {
+		tapolog = level.NewFilter(tapolog, level.AllowDebug()) // only normal log messages
+	} else {
+		tapolog = level.NewFilter(tapolog) // only normal log messages
+	}
+
+	plug, err := tapo.NewPlug(ip, cfg.Email, cfg.Password, tapolog)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create plug: %w", err)
+	}
+
+	if err := plug.Handshake(); err != nil {
 		return nil, fmt.Errorf("login failed: %w", err)
 	}
 	return plug, nil
@@ -162,7 +176,7 @@ func cmdList(cfg *cmdCfg) error {
 	client := tapo.NewClient(cfg.logger)
 	devices, _, err := client.Discover()
 	if err != nil {
-		return fmt.Errorf("Discovery failed: %w", err)
+		return fmt.Errorf("discovery failed: %w", err)
 	}
 	idx := 0
 	for _, device := range devices {
@@ -233,7 +247,7 @@ func main() {
 
 	cfg, err := loadConfig(*flagConfigFile)
 	if err != nil {
-		log.Fatalf("Failed to load config file: %v", err)
+		log.Fatalf("failed to load config file: %v", err)
 	}
 
 	var logger *log.Logger

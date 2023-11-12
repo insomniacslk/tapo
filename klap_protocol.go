@@ -15,7 +15,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/netip"
@@ -24,17 +23,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-kit/log/level"
 )
 
-func NewKlapSession(l *log.Logger) *KlapSession {
-	return &KlapSession{
-		log: l,
-	}
-}
-
 type KlapSession struct {
-	log         *log.Logger
-	addr        netip.Addr
+	plug        *Plug
 	SessionID   string
 	Expiry      time.Time
 	LocalSeed   []byte
@@ -48,7 +42,7 @@ type KlapSession struct {
 }
 
 func (s *KlapSession) Addr() netip.Addr {
-	return s.addr
+	return s.plug.addr
 }
 
 func (s *KlapSession) secretBytes() []byte {
@@ -84,7 +78,8 @@ func (s *KlapSession) getIV() []byte {
 }
 
 func (s *KlapSession) encrypt(data []byte) ([]byte, int32, error) {
-	s.log.Printf("Plaintext: %s", data)
+
+	level.Debug(s.plug.log).Log("service", "encrypt", "msg", string(data))
 	key := s.getKey()
 	if !s.initialized {
 		s.iv = s.getIV()
@@ -92,9 +87,9 @@ func (s *KlapSession) encrypt(data []byte) ([]byte, int32, error) {
 		s.initialized = true
 	}
 	s.seq++
-	s.log.Printf("Seq: %d", s.seq)
+	level.Debug(s.plug.log).Log("msg", fmt.Sprintf("seq: %d", s.seq))
 	binary.BigEndian.PutUint32(s.iv[12:16], uint32(s.seq))
-	s.log.Printf("IV: %v", s.iv)
+	level.Debug(s.plug.log).Log("msg", fmt.Sprintf("iv: %v", s.iv))
 	// PKCS7 padding to aes block size (16)
 	neededBytes := (aes.BlockSize - (len(data))%aes.BlockSize)
 	plaintext := make([]byte, len(data)+neededBytes)
@@ -102,22 +97,22 @@ func (s *KlapSession) encrypt(data []byte) ([]byte, int32, error) {
 	for idx := len(data); idx < len(plaintext); idx++ {
 		plaintext[idx] = byte(neededBytes)
 	}
-	s.log.Printf("Padded plaintext: %v", plaintext)
+	level.Debug(s.plug.log).Log("service", "encrypt", "msg", fmt.Sprintf("padded plaintext: %v", plaintext))
 	ciphertext, err := encryptCBC(key, s.iv[:], plaintext)
 	if err != nil {
 		return nil, 0, fmt.Errorf("encryption failed: %w", err)
 	}
-	s.log.Printf("Ciphertext: %v", ciphertext)
+	level.Debug(s.plug.log).Log("service", "encrypt", "msg", fmt.Sprintf("ciphertext: %v", ciphertext))
 
 	// signature
 	bytesToHash := append(s.getSignature(), s.iv[12:16]...)
 	bytesToHash = append(bytesToHash, ciphertext...)
-	s.log.Printf("Digest %d %v", len(bytesToHash), bytesToHash)
+	level.Debug(s.plug.log).Log("service", "encrypt", "msg", fmt.Sprintf("digest %d %v", len(bytesToHash), bytesToHash))
 	signature := sha256.Sum256(bytesToHash)
-	s.log.Printf("Signature %d %v", len(signature), signature)
+	level.Debug(s.plug.log).Log("service", "encrypt", "msg", fmt.Sprintf("signature %d %v", len(signature), signature))
 
 	ret := append(signature[:], ciphertext...)
-	s.log.Printf("Final ciphertext: %d %v", len(ret), ret)
+	level.Debug(s.plug.log).Log("service", "encrypt", "msg", fmt.Sprintf("final ciphertext: %d %v", len(ret), ret))
 
 	return ret, s.seq, nil
 }
@@ -141,7 +136,7 @@ func (s *KlapSession) decrypt(data []byte) ([]byte, error) {
 		}
 	}
 	plaintext = plaintext[:len(plaintext)-int(numPadBytes)]
-	s.log.Printf("Plaintext: %v", plaintext)
+	level.Debug(s.plug.log).Log("msg", fmt.Sprintf("plaintext: %v", plaintext))
 	return plaintext, nil
 }
 
@@ -193,11 +188,11 @@ func (s *KlapSession) Request(payload []byte) ([]byte, error) {
 	qs.Add("seq", strconv.FormatInt(int64(seq), 10))
 	u := url.URL{
 		Scheme:   "http",
-		Host:     s.addr.String(),
+		Host:     s.plug.addr.String(),
 		Path:     "/app/request",
 		RawQuery: qs.Encode(),
 	}
-	s.log.Printf("Request URL: %s", u.String())
+	level.Debug(s.plug.log).Log("msg", fmt.Sprintf("request URL: %s", u.String()))
 	req, err := http.NewRequest(http.MethodPost, u.String(), bytes.NewReader(encrypted))
 	if err != nil {
 		return nil, fmt.Errorf("http request creation failed: %w", err)
@@ -230,12 +225,11 @@ func (s *KlapSession) Request(payload []byte) ([]byte, error) {
 	return decrypted, nil
 }
 
-func (s *KlapSession) Handshake(addr netip.Addr, username, password string) error {
-	s.addr = addr
-	if err := s.handshake1(username, password, addr); err != nil {
+func (s *KlapSession) Handshake() error {
+	if err := s.handshake1(); err != nil {
 		return fmt.Errorf("KLAP handshake1 failed: %w", err)
 	}
-	return s.handshake2(addr)
+	return s.handshake2(s.plug.addr)
 }
 
 func (s *KlapSession) handshake2(target netip.Addr) error {
@@ -275,10 +269,10 @@ func (s *KlapSession) handshake2(target netip.Addr) error {
 	return nil
 }
 
-func (s *KlapSession) handshake1(username, password string, target netip.Addr) error {
+func (s *KlapSession) handshake1() error {
 	u := url.URL{
 		Scheme: "http",
-		Host:   target.String(),
+		Host:   s.plug.addr.String(),
 		Path:   "/app/handshake1",
 	}
 	var localSeed [16]byte
@@ -321,8 +315,8 @@ func (s *KlapSession) handshake1(username, password string, target netip.Addr) e
 		h := sha1.Sum([]byte(s))
 		return h[:]
 	}
-	bytesToHash = append(bytesToHash, calcSha1(username)...)
-	bytesToHash = append(bytesToHash, calcSha1(password)...)
+	bytesToHash = append(bytesToHash, calcSha1(s.plug.user)...)
+	bytesToHash = append(bytesToHash, calcSha1(s.plug.password)...)
 	userHash := sha256.Sum256(bytesToHash)
 
 	bytesToHash = append(localSeed[:], remoteSeed...)

@@ -14,29 +14,20 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/netip"
 	"strings"
 	"time"
 
+	"github.com/go-kit/log/level"
 	"github.com/mergermarket/go-pkcs7"
 )
 
-func NewPassthroughSession(l *log.Logger) *PassthroughSession {
-	return &PassthroughSession{
-		log: l,
-	}
-}
-
 type PassthroughSession struct {
-	log        *log.Logger
+	plug       *Plug
 	Key        []byte
 	IV         []byte
 	ID         string
-	addr       netip.Addr
-	username   string
-	password   string
 	token      string
 	privateKey *rsa.PrivateKey
 	publicKey  *rsa.PublicKey
@@ -44,13 +35,10 @@ type PassthroughSession struct {
 }
 
 func (p *PassthroughSession) Addr() netip.Addr {
-	return p.addr
+	return p.plug.addr
 }
 
-func (p *PassthroughSession) Handshake(addr netip.Addr, username, password string) error {
-	p.addr = addr
-	p.username = username
-	p.password = password
+func (s *PassthroughSession) Handshake() error {
 	// generate an RSA key pair
 	bits := 1024
 	key, err := rsa.GenerateKey(rand.Reader, bits)
@@ -58,8 +46,8 @@ func (p *PassthroughSession) Handshake(addr netip.Addr, username, password strin
 		return fmt.Errorf("failed to generate RSA key: %w", err)
 	}
 	privkey, pubkey := key, key.Public().(*rsa.PublicKey)
-	p.privateKey = privkey
-	p.publicKey = pubkey
+	s.privateKey = privkey
+	s.publicKey = pubkey
 	pkix, err := x509.MarshalPKIXPublicKey(pubkey)
 	if err != nil {
 		return fmt.Errorf("failed to marshal public key to PKIX: %w", err)
@@ -75,8 +63,8 @@ func (p *PassthroughSession) Handshake(addr netip.Addr, username, password strin
 	if err != nil {
 		return fmt.Errorf("failed to marshal handshake payload: %w", err)
 	}
-	p.log.Printf("Handshake request: %s", requestBytes)
-	u := fmt.Sprintf("http://%s/app", p.addr.String())
+	level.Debug(s.plug.log).Log("service", "handshake", "msg", fmt.Sprintf("req: %s", requestBytes))
+	u := fmt.Sprintf("http://%s/app", s.plug.addr.String())
 	httpresp, err := http.Post(u, "application/json", bytes.NewBuffer(requestBytes))
 	if err != nil {
 		return fmt.Errorf("HTTP POST failed: %w", err)
@@ -87,7 +75,7 @@ func (p *PassthroughSession) Handshake(addr netip.Addr, username, password strin
 	if err != nil {
 		return fmt.Errorf("failed to read HTTP body: %w", err)
 	}
-	p.log.Printf("Handshake response: %s", httprespBytes)
+	level.Debug(s.plug.log).Log("service", "handshake", "msg", fmt.Sprintf("resp: %s", httprespBytes))
 	var resp HandshakeResponse
 	if err := json.Unmarshal(httprespBytes, &resp); err != nil {
 		return fmt.Errorf("failed to unmarshal JSON response: %w", err)
@@ -118,9 +106,9 @@ func (p *PassthroughSession) Handshake(addr netip.Addr, username, password strin
 	if sessionID == "" {
 		return fmt.Errorf("no TP_SESSIONID cookie found in HTTP response")
 	}
-	p.Key = sessionKey[:16]
-	p.ID = sessionID
-	p.IV = sessionKey[16:]
+	s.Key = sessionKey[:16]
+	s.ID = sessionID
+	s.IV = sessionKey[16:]
 	return nil
 }
 
@@ -137,10 +125,11 @@ func (s *PassthroughSession) Request(requestBytes []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal securePassthrough payload: %w", err)
 	}
-	s.log.Printf("Passthrough request: %s", passthroughRequestBytes)
+
+	level.Debug(s.plug.log).Log("service", "request", "msg", fmt.Sprintf("req: %s", passthroughRequestBytes))
 
 	// send it via http
-	u := fmt.Sprintf("http://%s/app", s.addr.String())
+	u := fmt.Sprintf("http://%s/app", s.plug.addr.String())
 	if s.token != "" {
 		u += "?token=" + s.token
 	}
@@ -162,7 +151,7 @@ func (s *PassthroughSession) Request(requestBytes []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read HTTP body: %w", err)
 	}
-	s.log.Printf("Passthrough response: %s", httprespBytes)
+	level.Debug(s.plug.log).Log("service", "request", "msg", fmt.Sprintf("resp: %s", httprespBytes))
 	var resp SecurePassthroughResponse
 	if err := json.Unmarshal(httprespBytes, &resp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
