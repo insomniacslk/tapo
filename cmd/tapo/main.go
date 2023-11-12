@@ -82,9 +82,10 @@ func getPlug(cfg *cmdCfg, addr string) (*tapo.Plug, error) {
 	}
 
 	tapolog := kitlog.NewLogfmtLogger(kitlog.NewSyncWriter(os.Stderr))
-	tapolog = kitlog.With(tapolog, "ip", addr)
+	tapolog = kitlog.With(tapolog, "ts", kitlog.DefaultTimestampUTC, "ip", addr)
 	if cfg.Debug {
 		tapolog = level.NewFilter(tapolog, level.AllowDebug()) // only normal log messages
+		tapolog = kitlog.With(tapolog, "caller", kitlog.DefaultCaller)
 	} else {
 		tapolog = level.NewFilter(tapolog) // only normal log messages
 	}

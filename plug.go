@@ -60,8 +60,8 @@ func NewPlug(addr netip.Addr, user, password string, tapolog log.Logger) (*Plug,
 	var logger log.Logger
 	if tapolog == nil {
 		logger = log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr))
-		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
-		logger = log.With(logger, "ip", addr)
+		logger = log.With(logger, "ts", log.DefaultTimestampUTC, "ip", addr)
+		logger = log.With(logger)
 		logger = level.NewFilter(logger) // only normal log messages
 	} else {
 		logger = tapolog
