@@ -28,7 +28,7 @@ var (
 	flagEmail      = pflag.StringP("email", "e", "", "E-mail for login")
 	flagPassword   = pflag.StringP("password", "p", "", "Password for login")
 	flagDebug      = pflag.BoolP("debug", "d", false, "Enable debug logs")
-	flagFormat     = pflag.StringP("discover-format", "f", "{{.Idx}}) ip={{.IP}} mac={{.MAC}} type={{.Type}} model={{.Model}} deviceid={{.ID}}\n", "Template for printing each line of a discovered device. It uses Go's text/template syntax")
+	flagFormat     = pflag.StringP("format", "f", "{{.Idx}}) ip={{.IP}} mac={{.MAC}} type={{.Type}} model={{.Model}} deviceid={{.ID}}\n", "Template for printing each line of a discovered device, works with `list`, `discover` and `cloud-list`, fields may differ across commands. It uses Go's text/template syntax")
 )
 
 func loadConfig(configFile string) (*cmdCfg, error) {
@@ -138,7 +138,23 @@ func cmdInfo(cfg *cmdCfg, addr string) error {
 	return nil
 }
 
+type formatObj struct {
+	Idx       int
+	IP        string
+	MAC       string
+	Type      string
+	Model     string
+	ID        string
+	Name      string
+	FwVersion string
+	HwVersion string
+}
+
 func cmdCloudList(cfg *cmdCfg) error {
+	tmpl, err := template.New("cloud-list").Parse(strings.Replace(*flagFormat, "\\n", "\n", -1))
+	if err != nil {
+		return fmt.Errorf("invalid template string: %w", err)
+	}
 	client := tapo.NewClient(cfg.logger)
 	if err := client.CloudLogin(cfg.Email, cfg.Password); err != nil {
 		return err
@@ -147,10 +163,23 @@ func cmdCloudList(cfg *cmdCfg) error {
 	if err != nil {
 		return err
 	}
-	for idx, d := range devices {
-		fmt.Printf("  %d) name=%s  model:%s, fw:%s, hw:%s, mac:%s\n", idx+1, d.DecodedAlias, d.DeviceModel, d.FwVer, d.DeviceHwVer, d.DeviceMAC)
+	for idx, dev := range devices {
+		o := formatObj{
+			Idx:       idx,
+			IP:        "unknown",
+			MAC:       dev.DeviceMAC.String(),
+			Type:      dev.DeviceType,
+			Model:     dev.DeviceModel,
+			ID:        dev.DeviceID,
+			Name:      dev.DecodedAlias,
+			FwVersion: dev.FwVer,
+			HwVersion: dev.DeviceHwVer,
+		}
+		if err := tmpl.Execute(os.Stdout, o); err != nil {
+			return fmt.Errorf("template execution failed: %w", err)
+		}
 		if cfg.Debug {
-			fmt.Printf("    %+v\n", d)
+			fmt.Printf("    %+v\n", dev)
 		}
 	}
 	return nil
@@ -164,21 +193,41 @@ func cmdList(cfg *cmdCfg) error {
 	if err != nil {
 		return fmt.Errorf("Discovery failed: %w", err)
 	}
+	tmpl, err := template.New("list").Parse(strings.Replace(*flagFormat, "\\n", "\n", -1))
+	if err != nil {
+		return fmt.Errorf("invalid template string: %w", err)
+	}
 	idx := 0
-	for _, device := range devices {
+	for _, dev := range devices {
 		idx++
 		// TODO specify plug parameters from device.Result.MgtEncryptSchm
-		plug, err := getPlug(cfg, device.Result.IP.String())
+		plug, err := getPlug(cfg, dev.Result.IP.String())
 		if err != nil {
-			log.Printf("Warning: skipping plug '%s': %v\n", device.Result.IP.String(), err)
+			log.Printf("Warning: skipping plug '%s': %v\n", dev.Result.IP.String(), err)
 			continue
 		}
 		info, err := plug.GetDeviceInfo()
 		if err != nil {
-			log.Printf("Warning: skipping plug '%s': %v", device.Result.IP.String(), err)
+			log.Printf("Warning: skipping plug '%s': %v", dev.Result.IP.String(), err)
 			continue
 		}
-		fmt.Printf("%d) name=%s ip=%s mac=%s type=%s model=%s hw=%s fw=%s\n", idx, info.DecodedNickname, device.Result.IP, device.Result.MAC, device.Result.DeviceType, device.Result.DeviceModel, info.HWVersion, info.FWVersion)
+		o := formatObj{
+			Idx:       idx,
+			IP:        dev.Result.IP.String(),
+			MAC:       dev.Result.MAC.String(),
+			Type:      dev.Result.DeviceType,
+			Model:     dev.Result.DeviceModel,
+			ID:        dev.Result.DeviceID,
+			Name:      info.DecodedNickname,
+			FwVersion: info.FWVersion,
+			HwVersion: info.HWVersion,
+		}
+		if err := tmpl.Execute(os.Stdout, o); err != nil {
+			return fmt.Errorf("template execution failed: %w", err)
+		}
+		if cfg.Debug {
+			fmt.Printf("    %+v\n", dev)
+		}
 	}
 	return nil
 }
@@ -190,21 +239,14 @@ func cmdDiscover(cfg *cmdCfg) error {
 		return err
 	}
 	fmt.Printf("Found %d devices and %d errors\n", len(devices), len(failed))
-	idx := 1
-	type obj struct {
-		Idx   int
-		IP    string
-		MAC   string
-		Type  string
-		Model string
-		ID    string
-	}
-	tmpl, err := template.New("test").Parse(strings.Replace(*flagFormat, "\\n", "\n", -1))
+	idx := 0
+	tmpl, err := template.New("discover").Parse(strings.Replace(*flagFormat, "\\n", "\n", -1))
 	if err != nil {
 		return fmt.Errorf("invalid template string: %w", err)
 	}
 	for _, dev := range devices {
-		o := obj{
+		idx++
+		o := formatObj{
 			Idx:   idx,
 			IP:    dev.Result.IP.String(),
 			MAC:   dev.Result.MAC.String(),
@@ -215,7 +257,9 @@ func cmdDiscover(cfg *cmdCfg) error {
 		if err := tmpl.Execute(os.Stdout, o); err != nil {
 			return fmt.Errorf("template execution failed: %w", err)
 		}
-		idx++
+		if cfg.Debug {
+			fmt.Printf("    %+v\n", dev)
+		}
 	}
 	return nil
 }
