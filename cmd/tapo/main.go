@@ -148,7 +148,7 @@ func cmdCloudList(cfg *cmdCfg) error {
 		return err
 	}
 	for idx, d := range devices {
-		fmt.Printf("  %d) %s\n    model:%s, fw:%s, hw:%s, mac:%s\n", idx+1, d.DecodedAlias, d.DeviceModel, d.FwVer, d.DeviceHwVer, d.DeviceMAC)
+		fmt.Printf("  %d) name=%s  model:%s, fw:%s, hw:%s, mac:%s\n", idx+1, d.DecodedAlias, d.DeviceModel, d.FwVer, d.DeviceHwVer, d.DeviceMAC)
 		if cfg.Debug {
 			fmt.Printf("    %+v\n", d)
 		}
