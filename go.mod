@@ -1,6 +1,6 @@
 module github.com/insomniacslk/tapo
 
-go 1.21.1
+go 1.21
 
 require (
 	github.com/eapache/channels v1.1.0
