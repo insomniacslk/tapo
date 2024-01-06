@@ -30,7 +30,7 @@ var (
 	flagEmail      = pflag.StringP("email", "e", "", "E-mail for login")
 	flagPassword   = pflag.StringP("password", "p", "", "Password for login")
 	flagDebug      = pflag.BoolP("debug", "d", false, "Enable debug logs")
-	flagFormat     = pflag.StringP("format", "f", "{{.Idx}}) ip={{.IP}} mac={{.MAC}} type={{.Type}} model={{.Model}} deviceid={{.ID}}\n", "Template for printing each line of a discovered device, works with `list`, `discover` and `cloud-list`, fields may differ across commands. It uses Go's text/template syntax")
+	flagFormat     = pflag.StringP("format", "f", "{{.Idx}}) name={{.Name}} ip={{.IP}} mac={{.MAC}} type={{.Type}} model={{.Model}} deviceid={{.ID}}\n", "Template for printing each line of a discovered device, works with `list`, `discover` and `cloud-list`, fields may differ across commands. It uses Go's text/template syntax")
 )
 
 func loadConfig(configFile string) (*cmdCfg, error) {
