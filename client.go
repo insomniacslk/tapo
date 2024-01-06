@@ -165,11 +165,22 @@ func (c *Client) CloudList() ([]Device, error) {
 	}
 	devices := deviceListResp.Result.DeviceList
 	for idx, d := range devices {
-		decodedAlias, err := base64.StdEncoding.DecodeString(d.Alias)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode alias: %w", err)
+		switch d.Alias {
+		case "Plug", "Tapo bulb":
+			// it seems that at some point the cloud service is not
+			// base64-encoding default names anymore.
+			// If you hit this bug, please file an issue at
+			// https://github.com/insomniacslk/tapo/issues .
+			// TODO add more names once discovered.
+			d.DecodedAlias = d.Alias
+		default:
+			decodedAlias, err := base64.StdEncoding.DecodeString(d.Alias)
+			if err != nil {
+				log.Printf("Failed on %s", d.Alias)
+				return nil, fmt.Errorf("failed to decode alias: %w", err)
+			}
+			d.DecodedAlias = string(decodedAlias)
 		}
-		d.DecodedAlias = string(decodedAlias)
 		devices[idx] = d
 	}
 	return deviceListResp.Result.DeviceList, nil
