@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/netip"
 	"os"
 	"path"
@@ -24,7 +25,8 @@ var defaultConfigFile = path.Join(configdir.LocalConfig(progname), "config.json"
 
 var (
 	flagConfigFile = pflag.StringP("config", "c", defaultConfigFile, "Configuration file")
-	flagAddr       = pflag.StringP("addr", "a", "", "IP address of the Tapo device")
+	flagAddr       = pflag.IPP("addr", "a", nil, "IP address of the Tapo device")
+	flagName       = pflag.StringP("name", "n", "", "Name of the Tapo device. This is slow, it will perform a local discovery first. Ignored if --addr is specified")
 	flagEmail      = pflag.StringP("email", "e", "", "E-mail for login")
 	flagPassword   = pflag.StringP("password", "p", "", "Password for login")
 	flagDebug      = pflag.BoolP("debug", "d", false, "Enable debug logs")
@@ -70,6 +72,29 @@ func loadConfig(configFile string) (*cmdCfg, error) {
 	return &cfg, nil
 }
 
+func ipByName(cfg *cmdCfg, name string) (net.IP, error) {
+	devices, err := discoverDevices(cfg.logger)
+	if err != nil {
+		return nil, fmt.Errorf("discovery failed: %w", err)
+	}
+	for _, dev := range devices {
+		plug, err := getPlug(cfg, dev.Result.IP.String())
+		if err != nil {
+			log.Printf("Warning: skipping plug '%s': %v\n", dev.Result.IP.String(), err)
+			continue
+		}
+		info, err := plug.GetDeviceInfo()
+		if err != nil {
+			log.Printf("Warning: skipping plug '%s': %v", dev.Result.IP.String(), err)
+			continue
+		}
+		if info.DecodedNickname == name {
+			return net.IP(dev.Result.IP), nil
+		}
+	}
+	return nil, nil
+}
+
 func getPlug(cfg *cmdCfg, addr string) (*tapo.Plug, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("no address specified")
@@ -93,24 +118,24 @@ type cmdCfg struct {
 	Debug    bool `json:"debug"`
 }
 
-func cmdOn(cfg *cmdCfg, addr string) error {
-	plug, err := getPlug(cfg, addr)
+func cmdOn(cfg *cmdCfg, ip net.IP) error {
+	plug, err := getPlug(cfg, ip.String())
 	if err != nil {
 		return err
 	}
 	return plug.SetDeviceInfo(true)
 }
 
-func cmdOff(cfg *cmdCfg, addr string) error {
-	plug, err := getPlug(cfg, addr)
+func cmdOff(cfg *cmdCfg, ip net.IP) error {
+	plug, err := getPlug(cfg, ip.String())
 	if err != nil {
 		return err
 	}
 	return plug.SetDeviceInfo(false)
 }
 
-func cmdInfo(cfg *cmdCfg, addr string) error {
-	plug, err := getPlug(cfg, addr)
+func cmdInfo(cfg *cmdCfg, ip net.IP) error {
+	plug, err := getPlug(cfg, ip.String())
 	if err != nil {
 		return err
 	}
@@ -185,13 +210,18 @@ func cmdCloudList(cfg *cmdCfg) error {
 	return nil
 }
 
+func discoverDevices(logger *log.Logger) (map[string]tapo.DiscoverResponse, error) {
+	client := tapo.NewClient(logger)
+	devices, _, err := client.Discover()
+	return devices, err
+}
+
 // cmdList prints a list of all the locally-reachable devices. It runs a
 // discovery first, then it calls the info API on each device.
 func cmdList(cfg *cmdCfg) error {
-	client := tapo.NewClient(cfg.logger)
-	devices, _, err := client.Discover()
+	devices, err := discoverDevices(cfg.logger)
 	if err != nil {
-		return fmt.Errorf("Discovery failed: %w", err)
+		return fmt.Errorf("discovery failed: %w", err)
 	}
 	tmpl, err := template.New("list").Parse(strings.Replace(*flagFormat, "\\n", "\n", -1))
 	if err != nil {
@@ -264,6 +294,23 @@ func cmdDiscover(cfg *cmdCfg) error {
 	return nil
 }
 
+func getIPFromIPOrName(cfg *cmdCfg, ip net.IP, name string) (net.IP, error) {
+	if ip != nil {
+		return ip, nil
+	}
+	if name != "" {
+		a, err := ipByName(cfg, *flagName)
+		if err != nil {
+			return nil, err
+		}
+		if a == nil {
+			return nil, fmt.Errorf("unknown device name")
+		}
+		return a, nil
+	}
+	return nil, fmt.Errorf("no device name nor IP address specified")
+}
+
 func main() {
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <flags> [command]\n", os.Args[0])
@@ -286,13 +333,26 @@ func main() {
 	}
 
 	cfg.logger = logger
+	var ip net.IP
 	switch strings.ToLower(cmd) {
 	case "on":
-		err = cmdOn(cfg, *flagAddr)
+		ip, err = getIPFromIPOrName(cfg, *flagAddr, *flagName)
+		if err != nil {
+			break
+		}
+		err = cmdOn(cfg, ip)
 	case "off":
-		err = cmdOff(cfg, *flagAddr)
+		ip, err = getIPFromIPOrName(cfg, *flagAddr, *flagName)
+		if err != nil {
+			break
+		}
+		err = cmdOff(cfg, ip)
 	case "info", "energy":
-		err = cmdInfo(cfg, *flagAddr)
+		ip, err = getIPFromIPOrName(cfg, *flagAddr, *flagName)
+		if err != nil {
+			break
+		}
+		err = cmdInfo(cfg, ip)
 	case "cloud-list":
 		err = cmdCloudList(cfg)
 	case "list":
