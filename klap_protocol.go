@@ -219,7 +219,6 @@ func (s *KlapSession) Request(payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("expected 200 OK, got %s. Error message: %s", resp.Status, body)
 	}
@@ -268,7 +267,6 @@ func (s *KlapSession) handshake2(target netip.Addr) error {
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("expected 200 OK, got %s. Error message: %s", resp.Status, body)
 	}
@@ -294,6 +292,9 @@ func (s *KlapSession) handshake1(username, password string, target netip.Addr) e
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("expected 200 OK, got %s. Error message: %s", resp.Status, body)
 	}
 	cookies, err := parseBrokenCookies(resp)
 	if err != nil {

@@ -82,14 +82,16 @@ func (p *PassthroughSession) Handshake(addr netip.Addr, username, password strin
 		return fmt.Errorf("HTTP POST failed: %w", err)
 	}
 	defer httpresp.Body.Close()
-
-	httprespBytes, err := io.ReadAll(httpresp.Body)
+	body, err := io.ReadAll(httpresp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read HTTP body: %w", err)
 	}
-	p.log.Printf("Handshake response: %s", httprespBytes)
+	if httpresp.StatusCode != 200 {
+		return fmt.Errorf("expected 200 OK, got %s. Error message: %s", httpresp.Status, body)
+	}
+	p.log.Printf("Handshake response: %s", body)
 	var resp HandshakeResponse
-	if err := json.Unmarshal(httprespBytes, &resp); err != nil {
+	if err := json.Unmarshal(body, &resp); err != nil {
 		return fmt.Errorf("failed to unmarshal JSON response: %w", err)
 	}
 	if resp.ErrorCode != 0 {
@@ -156,15 +158,17 @@ func (s *PassthroughSession) Request(requestBytes []byte) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP POST failed: %w", err)
 	}
 	defer httpresp.Body.Close()
-
 	// handle JSON response
-	httprespBytes, err := io.ReadAll(httpresp.Body)
+	body, err := io.ReadAll(httpresp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read HTTP body: %w", err)
 	}
-	s.log.Printf("Passthrough response: %s", httprespBytes)
+	if httpresp.StatusCode != 200 {
+		return nil, fmt.Errorf("expected 200 OK, got %s. Error message: %s", httpresp.Status, body)
+	}
+	s.log.Printf("Passthrough response: %s", body)
 	var resp SecurePassthroughResponse
-	if err := json.Unmarshal(httprespBytes, &resp); err != nil {
+	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
 	}
 	if resp.ErrorCode != 0 {
