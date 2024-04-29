@@ -9,6 +9,7 @@ package tapo
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -19,6 +20,9 @@ import (
 )
 
 var defaultTimeout = 10 * time.Second
+
+// This is returned when a Tapo device returns an HTTP 403.
+var ErrForbidden = errors.New("Forbidden")
 
 type TapoError int
 

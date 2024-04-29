@@ -35,6 +35,8 @@ func NewKlapSession(l *log.Logger) *KlapSession {
 type KlapSession struct {
 	log         *log.Logger
 	addr        netip.Addr
+	username    string
+	password    string
 	SessionID   string
 	Expiry      time.Time
 	LocalSeed   []byte
@@ -185,6 +187,18 @@ func decryptCBC(key, iv, ciphertext []byte) ([]byte, error) {
 }
 
 func (s *KlapSession) Request(payload []byte) ([]byte, error) {
+	ret, err := s.request(payload)
+	if err != ErrForbidden {
+		return ret, err
+	}
+	// token expiret? Try to reauthenticate
+	if err := s.Handshake(s.addr, s.username, s.password); err != nil {
+		return nil, err
+	}
+	return s.request(payload)
+}
+
+func (s *KlapSession) request(payload []byte) ([]byte, error) {
 	encrypted, seq, err := s.encrypt(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt payload: %w", err)
@@ -220,6 +234,9 @@ func (s *KlapSession) Request(payload []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 	if resp.StatusCode != 200 {
+		if resp.StatusCode == 403 {
+			return nil, ErrForbidden
+		}
 		return nil, fmt.Errorf("expected 200 OK, got %s. Error message: %s", resp.Status, body)
 	}
 	decrypted, err := s.decrypt(body)
@@ -231,6 +248,8 @@ func (s *KlapSession) Request(payload []byte) ([]byte, error) {
 
 func (s *KlapSession) Handshake(addr netip.Addr, username, password string) error {
 	s.addr = addr
+	s.username = username
+	s.password = password
 	if err := s.handshake1(username, password, addr); err != nil {
 		return fmt.Errorf("KLAP handshake1 failed: %w", err)
 	}
@@ -268,6 +287,9 @@ func (s *KlapSession) handshake2(target netip.Addr) error {
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
 	if resp.StatusCode != 200 {
+		if resp.StatusCode == 403 {
+			return ErrForbidden
+		}
 		return fmt.Errorf("expected 200 OK, got %s. Error message: %s", resp.Status, body)
 	}
 	return nil

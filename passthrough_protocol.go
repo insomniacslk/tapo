@@ -87,6 +87,9 @@ func (p *PassthroughSession) Handshake(addr netip.Addr, username, password strin
 		return fmt.Errorf("failed to read HTTP body: %w", err)
 	}
 	if httpresp.StatusCode != 200 {
+		if httpresp.StatusCode == 403 {
+			return ErrForbidden
+		}
 		return fmt.Errorf("expected 200 OK, got %s. Error message: %s", httpresp.Status, body)
 	}
 	p.log.Printf("Handshake response: %s", body)
@@ -125,8 +128,19 @@ func (p *PassthroughSession) Handshake(addr netip.Addr, username, password strin
 	p.IV = sessionKey[16:]
 	return nil
 }
-
 func (s *PassthroughSession) Request(requestBytes []byte) ([]byte, error) {
+	ret, err := s.request(requestBytes)
+	if err != ErrForbidden {
+		return ret, err
+	}
+	// Token expired? Try to reauthenticate
+	if err := s.Handshake(s.addr, s.username, s.password); err != nil {
+		return nil, err
+	}
+	return s.request(requestBytes)
+}
+
+func (s *PassthroughSession) request(requestBytes []byte) ([]byte, error) {
 	// encrypt the request
 	encodedRequest, err := s.encryptRequest(requestBytes)
 	if err != nil {
@@ -164,6 +178,9 @@ func (s *PassthroughSession) Request(requestBytes []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read HTTP body: %w", err)
 	}
 	if httpresp.StatusCode != 200 {
+		if httpresp.StatusCode == 403 {
+			return nil, ErrForbidden
+		}
 		return nil, fmt.Errorf("expected 200 OK, got %s. Error message: %s", httpresp.Status, body)
 	}
 	s.log.Printf("Passthrough response: %s", body)
