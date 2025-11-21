@@ -400,7 +400,11 @@ func printDeviceInfo(i *tapo.DeviceInfo) {
 	fmt.Printf("ON time                 : %d\n", i.OnTime)
 	fmt.Printf("Default states\n")
 	fmt.Printf("  Type                  : %s\n", i.DefaultStates.Type)
-	fmt.Printf("  State                 : %s\n", string(*i.DefaultStates.State))
+	if i.DefaultStates.State != nil {
+		fmt.Printf("  State                 : %s\n", string(*i.DefaultStates.State))
+	} else {
+		fmt.Printf("  State                 : <unset>\n")
+	}
 	fmt.Printf("Overheated              : %v\n", i.OverHeated)
 	fmt.Printf("Power Protection Status : %s\n", i.PowerProtectionStatus)
 	fmt.Printf("Location                : %s\n", i.Location)
