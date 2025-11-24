@@ -13,6 +13,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -186,19 +187,19 @@ func decryptCBC(key, iv, ciphertext []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-func (s *KlapSession) Request(payload []byte) ([]byte, error) {
+func (s *KlapSession) Request(payload []byte) (*UntypedResponse, error) {
 	ret, err := s.request(payload)
-	if err != ErrForbidden {
+	if err != ErrForbidden || (ret != nil && ret.ErrorCode != StatusCommunicationError) {
 		return ret, err
 	}
-	// token expiret? Try to reauthenticate
+	// token expired or authentication needs refresh? Try to reauthenticate
 	if err := s.Handshake(s.addr, s.username, s.password); err != nil {
 		return nil, err
 	}
 	return s.request(payload)
 }
 
-func (s *KlapSession) request(payload []byte) ([]byte, error) {
+func (s *KlapSession) request(payload []byte) (*UntypedResponse, error) {
 	encrypted, seq, err := s.encrypt(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encrypt payload: %w", err)
@@ -243,10 +244,31 @@ func (s *KlapSession) request(payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt payload: %w", err)
 	}
-	return decrypted, nil
+	var uresp UntypedResponse
+	if err := json.Unmarshal(decrypted, &uresp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	return &uresp, nil
+}
+
+func (s *KlapSession) resetState() {
+	s.addr = netip.Addr{}
+	s.username = ""
+	s.password = ""
+	s.SessionID = ""
+	s.Expiry = time.Now()
+	s.LocalSeed = nil
+	s.RemoteSeed = nil
+	s.UserHash = nil
+	s.key = nil
+	s.sig = nil
+	s.iv = nil
+	s.seq = 0
+	s.initialized = false
 }
 
 func (s *KlapSession) Handshake(addr netip.Addr, username, password string) error {
+	s.resetState()
 	s.addr = addr
 	s.username = username
 	s.password = password
