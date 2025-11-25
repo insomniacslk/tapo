@@ -174,6 +174,23 @@ type DeviceInfo struct {
 	DecodedNickname string
 }
 
+func (di *DeviceInfo) SupportsEnergyMonitoring() bool {
+	var plugsWithEnergyMonitoring = []string{
+		// from https://www.tp-link.com/it/home-networking/smart-plug/?filterby=6184
+		"P110",
+		"P110M",
+		"P115",
+		// however I own a P125M and it also supports energy monitoring, despite not being on that list
+		"P125M",
+	}
+	for _, emp := range plugsWithEnergyMonitoring {
+		if di.Model == emp {
+			return true
+		}
+	}
+	return false
+}
+
 type GetDeviceInfoResponse struct {
 	ResponseEnvelope
 	Result DeviceInfo `json:"result"`

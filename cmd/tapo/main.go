@@ -151,10 +151,9 @@ func cmdInfo(cfg *cmdCfg, ip net.IP) error {
 	}
 	printDeviceUsage(dUsage)
 
-	if info.Model != "P110" {
+	if !info.SupportsEnergyMonitoring() {
 		return nil
 	}
-	// TODO what other plugs support GetEnergyUsage ?
 	eUsage, err := plug.GetEnergyUsage()
 	if err != nil {
 		return fmt.Errorf("failed to get energy usage: %w", err)
