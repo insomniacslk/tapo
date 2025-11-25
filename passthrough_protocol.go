@@ -47,7 +47,21 @@ func (p *PassthroughSession) Addr() netip.Addr {
 	return p.addr
 }
 
+func (p *PassthroughSession) resetState() {
+	p.Key = nil
+	p.IV = nil
+	p.ID = ""
+	p.addr = netip.Addr{}
+	p.username = ""
+	p.password = ""
+	p.token = ""
+	p.privateKey = nil
+	p.publicKey = nil
+	p.timeout = time.Duration(0)
+}
+
 func (p *PassthroughSession) Handshake(addr netip.Addr, username, password string) error {
+	p.resetState()
 	p.addr = addr
 	p.username = username
 	p.password = password
@@ -128,9 +142,10 @@ func (p *PassthroughSession) Handshake(addr netip.Addr, username, password strin
 	p.IV = sessionKey[16:]
 	return nil
 }
-func (s *PassthroughSession) Request(requestBytes []byte) ([]byte, error) {
+func (s *PassthroughSession) Request(requestBytes []byte) (*UntypedResponse, error) {
 	ret, err := s.request(requestBytes)
-	if err != ErrForbidden {
+	// token expired or authentication needs refresh? Try to reauthenticate
+	if err != ErrForbidden || (ret != nil && ret.ErrorCode != StatusCommunicationError) {
 		return ret, err
 	}
 	// Token expired? Try to reauthenticate
@@ -140,7 +155,7 @@ func (s *PassthroughSession) Request(requestBytes []byte) ([]byte, error) {
 	return s.request(requestBytes)
 }
 
-func (s *PassthroughSession) request(requestBytes []byte) ([]byte, error) {
+func (s *PassthroughSession) request(requestBytes []byte) (*UntypedResponse, error) {
 	// encrypt the request
 	encodedRequest, err := s.encryptRequest(requestBytes)
 	if err != nil {
@@ -192,12 +207,17 @@ func (s *PassthroughSession) request(requestBytes []byte) ([]byte, error) {
 		return nil, fmt.Errorf("request failed: %s", resp.ErrorCode)
 	}
 	// decrypt response
-	response, err := s.decryptResponse(resp.Result.Response)
+	decrypted, err := s.decryptResponse(resp.Result.Response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt response: %w", err)
 	}
 
-	return response, nil
+	var uresp UntypedResponse
+	if err := json.Unmarshal(decrypted, &uresp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return &uresp, nil
 }
 
 func (s *PassthroughSession) encryptRequest(req []byte) (string, error) {

@@ -24,25 +24,36 @@ var defaultTimeout = 10 * time.Second
 // This is returned when a Tapo device returns an HTTP 403.
 var ErrForbidden = errors.New("Forbidden")
 
-type TapoError int
+type TapoStatus int
 
-func (te TapoError) Error() string {
+var (
+	StatusSuccess                     TapoStatus = 0
+	StatusInvalidPublicKeyLength      TapoStatus = -1010
+	StatusInvalidTerminalUUID         TapoStatus = -1012
+	StatusInvalidRequestOrCredentials TapoStatus = -1501
+	StatusIncorrectRequest            TapoStatus = 1002
+	StatusJSONFormattingError         TapoStatus = -1003
+	StatusCommunicationError          TapoStatus = 1003
+	StatusSessionTimeout              TapoStatus = 9999
+)
+
+func (te TapoStatus) Error() string {
 	switch te {
-	case 0:
+	case StatusSuccess:
 		return "Success"
-	case -1010:
+	case StatusInvalidPublicKeyLength:
 		return "Invalid Public Key Length"
-	case -1012:
+	case StatusInvalidTerminalUUID:
 		return "Invalid terminalUUID"
-	case -1501:
+	case StatusInvalidRequestOrCredentials:
 		return "Invalid Request or Credentials"
-	case 1002:
+	case StatusIncorrectRequest:
 		return "Incorrect Request"
-	case -1003:
+	case StatusJSONFormattingError:
 		return "JSON formatting error"
-	case 1003:
+	case StatusCommunicationError:
 		return "Communication error"
-	case 9999:
+	case StatusSessionTimeout:
 		return "Session timeout"
 	default:
 		return fmt.Sprintf("Unknown error: %d", te)
@@ -50,21 +61,41 @@ func (te TapoError) Error() string {
 }
 
 type Plug struct {
-	log          *log.Logger
-	Addr         netip.Addr
-	terminalUUID uuid.UUID
-	session      Session
+	log                         *log.Logger
+	Addr                        netip.Addr
+	terminalUUID                uuid.UUID
+	session                     Session
+	retriesOnForbidden          uint
+	retriesOnCommunicationError uint
 }
 
-func NewPlug(addr netip.Addr, logger *log.Logger) *Plug {
+type PlugOption func(p *Plug)
+
+func OptionRetryOnForbidden(times uint) PlugOption {
+	return func(p *Plug) {
+		p.retriesOnForbidden = times
+	}
+}
+
+func OptionRetryOnCommunicationError(times uint) PlugOption {
+	return func(p *Plug) {
+		p.retriesOnCommunicationError = times
+	}
+}
+
+func NewPlug(addr netip.Addr, logger *log.Logger, opts ...PlugOption) *Plug {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
-	return &Plug{
+	plug := Plug{
 		log:          logger,
 		Addr:         addr,
 		terminalUUID: uuid.New(),
 	}
+	for _, opt := range opts {
+		opt(&plug)
+	}
+	return &plug
 }
 
 func (p *Plug) Handshake(username, password string) error {
@@ -89,8 +120,11 @@ func (p *Plug) Handshake(username, password string) error {
 				return fmt.Errorf("request failed: %w", err)
 			}
 			var loginResp LoginDeviceResponse
-			if err := json.Unmarshal(response, &loginResp); err != nil {
-				return fmt.Errorf("failed to unmarshal JSON response: %w", err)
+			loginResp.ErrorCode = response.ErrorCode
+			if response.Result != nil {
+				if err := json.Unmarshal([]byte(*response.Result), &loginResp.Result); err != nil {
+					return fmt.Errorf("failed to unmarshal JSON response: %w", err)
+				}
 			}
 			if loginResp.ErrorCode != 0 {
 				return fmt.Errorf("request failed: %s", loginResp.ErrorCode)
@@ -123,10 +157,13 @@ func (p *Plug) GetDeviceInfo() (*DeviceInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	p.log.Printf("GetDeviceInfo response: %s", response)
+	p.log.Printf("GetDeviceInfo response: %v", response)
 	var infoResp GetDeviceInfoResponse
-	if err := json.Unmarshal(response, &infoResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
+	infoResp.ErrorCode = response.ErrorCode
+	if response.Result != nil {
+		if err := json.Unmarshal([]byte(*response.Result), &infoResp.Result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
+		}
 	}
 	if infoResp.ErrorCode != 0 {
 		return nil, fmt.Errorf("request failed: %s", infoResp.ErrorCode)
@@ -162,10 +199,13 @@ func (p *Plug) SetDeviceInfo(deviceOn bool) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	p.log.Printf("SetDeviceInfo response: %s", response)
+	p.log.Printf("SetDeviceInfo response: %v", response)
 	var infoResp SetDeviceInfoResponse
-	if err := json.Unmarshal(response, &infoResp); err != nil {
-		return fmt.Errorf("failed to unmarshal JSON response: %w", err)
+	infoResp.ErrorCode = response.ErrorCode
+	if response.Result != nil {
+		if err := json.Unmarshal([]byte(*response.Result), &infoResp.Result); err != nil {
+			return fmt.Errorf("failed to unmarshal JSON response: %w", err)
+		}
 	}
 	if infoResp.ErrorCode != 0 {
 		return fmt.Errorf("request failed: %s", infoResp.ErrorCode)
@@ -188,10 +228,13 @@ func (p *Plug) GetDeviceUsage() (*DeviceUsage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	p.log.Printf("GetDeviceUsage response: %s", response)
+	p.log.Printf("GetDeviceUsage response: %v", response, response)
 	var usageResp GetDeviceUsageResponse
-	if err := json.Unmarshal(response, &usageResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
+	usageResp.ErrorCode = response.ErrorCode
+	if response.Result != nil {
+		if err := json.Unmarshal([]byte(*response.Result), &usageResp.Result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
+		}
 	}
 	if usageResp.ErrorCode != 0 {
 		return nil, fmt.Errorf("request failed: %s", usageResp.ErrorCode)
@@ -214,10 +257,13 @@ func (p *Plug) GetEnergyUsage() (*EnergyUsage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	p.log.Printf("GetEnergyUsage response: %s", response)
+	p.log.Printf("GetEnergyUsage response: %v", response)
 	var usageResp GetEnergyUsageResponse
-	if err := json.Unmarshal(response, &usageResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
+	usageResp.ErrorCode = response.ErrorCode
+	if response.Result != nil {
+		if err := json.Unmarshal([]byte(*response.Result), &usageResp.Result); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal JSON response: %w", err)
+		}
 	}
 	if usageResp.ErrorCode != 0 {
 		return nil, fmt.Errorf("request failed: %s", usageResp.ErrorCode)

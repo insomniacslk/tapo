@@ -42,7 +42,7 @@ type DiscoverResponse struct {
 			HTTPPort       int    `json:"http_port"`
 			Lv             int    `json:"lv"`
 		} `json:"mgt_encrypt_schm"`
-		ErrorCode int `json:"error_code"`
+		ErrorCode TapoStatus `json:"error_code"`
 	} `json:"result"`
 }
 
@@ -69,9 +69,18 @@ type HandshakeRequest struct {
 	} `json:"params"`
 }
 
+type UntypedResponse struct {
+	ResponseEnvelope
+	Result *json.RawMessage `json:"result,omitempty"`
+}
+
+type ResponseEnvelope struct {
+	ErrorCode TapoStatus `json:"error_code"`
+}
+
 type HandshakeResponse struct {
-	ErrorCode TapoError `json:"error_code"`
-	Result    struct {
+	ResponseEnvelope
+	Result struct {
 		Key string `json:"key"`
 	}
 }
@@ -96,8 +105,8 @@ type LoginDeviceRequest struct {
 }
 
 type LoginDeviceResponse struct {
-	ErrorCode TapoError `json:"error_code"`
-	Result    struct {
+	ResponseEnvelope
+	Result struct {
 		Token string `json:"token"`
 	} `json:"result"`
 }
@@ -166,8 +175,8 @@ type DeviceInfo struct {
 }
 
 type GetDeviceInfoResponse struct {
-	ErrorCode TapoError  `json:"error_code"`
-	Result    DeviceInfo `json:"result"`
+	ResponseEnvelope
+	Result DeviceInfo `json:"result"`
 }
 
 func NewGetDeviceInfoRequest() *GetDeviceInfoRequest {
@@ -185,8 +194,8 @@ type SetDeviceInfoRequest struct {
 }
 
 type SetDeviceInfoResponse struct {
-	ErrorCode TapoError `json:"error_code"`
-	Result    struct {
+	ResponseEnvelope
+	Result struct {
 		Response string `json:"response"`
 	}
 }
@@ -233,8 +242,8 @@ type EnergyUsage struct {
 }
 
 type GetDeviceUsageResponse struct {
-	ErrorCode TapoError   `json:"error_code"`
-	Result    DeviceUsage `json:"result"`
+	ResponseEnvelope
+	Result DeviceUsage `json:"result"`
 }
 
 func NewGetDeviceUsageRequest() *GetDeviceUsageRequest {
@@ -250,8 +259,8 @@ type GetEnergyUsageRequest struct {
 }
 
 type GetEnergyUsageResponse struct {
-	ErrorCode TapoError   `json:"error_code"`
-	Result    EnergyUsage `json:"result"`
+	ResponseEnvelope
+	Result EnergyUsage `json:"result"`
 }
 
 func NewGetEnergyUsageRequest() *GetEnergyUsageRequest {
@@ -269,8 +278,8 @@ type SecurePassthroughRequest struct {
 }
 
 type SecurePassthroughResponse struct {
-	ErrorCode TapoError `json:"error_code"`
-	Result    struct {
+	ResponseEnvelope
+	Result struct {
 		Response string `json:"response"`
 	}
 }
