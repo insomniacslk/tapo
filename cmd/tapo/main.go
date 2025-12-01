@@ -298,7 +298,7 @@ func getIPFromIPOrName(cfg *cmdCfg, ip net.IP, name string) (net.IP, error) {
 		return ip, nil
 	}
 	if name != "" {
-		a, err := ipByName(cfg, *flagName)
+		a, err := ipByName(cfg, name)
 		if err != nil {
 			return nil, err
 		}
