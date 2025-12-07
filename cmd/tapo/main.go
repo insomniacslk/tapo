@@ -25,7 +25,7 @@ var defaultConfigFile = path.Join(configdir.LocalConfig(progname), "config.json"
 
 var (
 	flagConfigFile = pflag.StringP("config", "c", defaultConfigFile, "Configuration file")
-	flagAddr       = pflag.IPP("addr", "a", nil, "IP address of the Tapo device")
+	flagAddr       = pflag.StringP("addr", "a", "", "IP address of the Tapo device")
 	flagName       = pflag.StringP("name", "n", "", "Name of the Tapo device. This is slow, it will perform a local discovery first. Ignored if --addr is specified")
 	flagEmail      = pflag.StringP("email", "e", "", "E-mail for login")
 	flagPassword   = pflag.StringP("password", "p", "", "Password for login")
@@ -293,12 +293,18 @@ func cmdDiscover(cfg *cmdCfg) error {
 	return nil
 }
 
-func getIPFromIPOrName(cfg *cmdCfg, ip net.IP, name string) (net.IP, error) {
-	if ip != nil {
-		return ip, nil
+func getIPFromIPOrName(cfg *cmdCfg, addr, devicename string) (net.IP, error) {
+	if addr != "" {
+		// check if it's a valid IP address
+		ipaddr, err := net.ResolveIPAddr("ip", addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid address %q: %w", addr, err)
+		}
+		log.Printf("resolved to %s", ipaddr.IP.String())
+		return ipaddr.IP, nil
 	}
-	if name != "" {
-		a, err := ipByName(cfg, name)
+	if devicename != "" {
+		a, err := ipByName(cfg, devicename)
 		if err != nil {
 			return nil, err
 		}
