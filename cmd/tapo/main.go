@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
@@ -99,12 +98,11 @@ func getPlug(cfg *cmdCfg, addr string) (*tapo.Plug, error) {
 	if addr == "" {
 		return nil, fmt.Errorf("no address specified")
 	}
-	ip, err := netip.ParseAddr(addr)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to parse IP address: %w", err)
-	}
 
-	plug := tapo.NewPlug(ip, cfg.logger)
+	plug, err := tapo.NewPlugFromString(addr, cfg.logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get new plug for addr %q: %w", addr, err)
+	}
 	if err := plug.Handshake(cfg.Email, cfg.Password); err != nil {
 		return nil, fmt.Errorf("login failed: %w", err)
 	}
@@ -118,26 +116,26 @@ type cmdCfg struct {
 	Debug    bool `json:"debug"`
 }
 
-func cmdOn(cfg *cmdCfg, ip net.IP) error {
-	plug, err := getPlug(cfg, ip.String())
+func cmdOn(cfg *cmdCfg, host string) error {
+	plug, err := getPlug(cfg, host)
 	if err != nil {
 		return err
 	}
 	return plug.SetDeviceInfo(true)
 }
 
-func cmdOff(cfg *cmdCfg, ip net.IP) error {
-	plug, err := getPlug(cfg, ip.String())
+func cmdOff(cfg *cmdCfg, host string) error {
+	plug, err := getPlug(cfg, host)
 	if err != nil {
 		return err
 	}
 	return plug.SetDeviceInfo(false)
 }
 
-func cmdInfo(cfg *cmdCfg, ip net.IP) error {
-	plug, err := getPlug(cfg, ip.String())
+func cmdInfo(cfg *cmdCfg, host string) error {
+	plug, err := getPlug(cfg, host)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get plug: %w", err)
 	}
 	info, err := plug.GetDeviceInfo()
 	if err != nil {
@@ -293,29 +291,6 @@ func cmdDiscover(cfg *cmdCfg) error {
 	return nil
 }
 
-func getIPFromIPOrName(cfg *cmdCfg, addr, devicename string) (net.IP, error) {
-	if addr != "" {
-		// check if it's a valid IP address
-		ipaddr, err := net.ResolveIPAddr("ip", addr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid address %q: %w", addr, err)
-		}
-		log.Printf("resolved to %s", ipaddr.IP.String())
-		return ipaddr.IP, nil
-	}
-	if devicename != "" {
-		a, err := ipByName(cfg, devicename)
-		if err != nil {
-			return nil, err
-		}
-		if a == nil {
-			return nil, fmt.Errorf("unknown device name")
-		}
-		return a, nil
-	}
-	return nil, fmt.Errorf("no device name nor IP address specified")
-}
-
 func main() {
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s <flags> [command]\n", os.Args[0])
@@ -338,26 +313,22 @@ func main() {
 	}
 
 	cfg.logger = logger
-	var ip net.IP
+	var addr string
+	if *flagAddr != "" {
+		// give priority to --addr over --name
+		addr = *flagAddr
+	} else if *flagName != "" {
+		addr = *flagName
+	} else {
+		log.Fatalf("Cannot specify both --addr and --name")
+	}
 	switch strings.ToLower(cmd) {
 	case "on":
-		ip, err = getIPFromIPOrName(cfg, *flagAddr, *flagName)
-		if err != nil {
-			break
-		}
-		err = cmdOn(cfg, ip)
+		err = cmdOn(cfg, addr)
 	case "off":
-		ip, err = getIPFromIPOrName(cfg, *flagAddr, *flagName)
-		if err != nil {
-			break
-		}
-		err = cmdOff(cfg, ip)
+		err = cmdOff(cfg, addr)
 	case "info", "energy":
-		ip, err = getIPFromIPOrName(cfg, *flagAddr, *flagName)
-		if err != nil {
-			break
-		}
-		err = cmdInfo(cfg, ip)
+		err = cmdInfo(cfg, addr)
 	case "cloud-list":
 		err = cmdCloudList(cfg)
 	case "list":
@@ -372,7 +343,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to execute command '%s': %v", cmd, err)
 	}
-
 }
 
 func printDeviceInfo(i *tapo.DeviceInfo) {

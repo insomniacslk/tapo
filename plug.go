@@ -7,12 +7,14 @@ package tapo
 // https://github.com/petretiandrea/plugp100/blob/main/plugp100/protocol/klap_protocol.py
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/netip"
 	"time"
 
@@ -83,6 +85,17 @@ func OptionRetryOnCommunicationError(times uint) PlugOption {
 	}
 }
 
+// NewPlugFromString is a higher-level wrapper to NewPlug`, but it treats the string
+// as either an IP address or a hostname, trying to resolve the latter.
+func NewPlugFromString(host string, logger *log.Logger, opts ...PlugOption) (*Plug, error) {
+	addrs, err := net.DefaultResolver.LookupNetIP(context.Background(), "ip", host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve host %q: %w", host, err)
+	}
+	return NewPlug(addrs[0], logger, opts...), nil
+}
+
+// NewPlug creates a new `Plug` for the given IP address.
 func NewPlug(addr netip.Addr, logger *log.Logger, opts ...PlugOption) *Plug {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
