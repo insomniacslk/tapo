@@ -24,7 +24,7 @@ var defaultConfigFile = path.Join(configdir.LocalConfig(progname), "config.json"
 
 var (
 	flagConfigFile = pflag.StringP("config", "c", defaultConfigFile, "Configuration file")
-	flagAddr       = pflag.StringP("addr", "a", "", "IP address of the Tapo device")
+	flagAddr       = pflag.StringP("addr", "a", "", "IP address or host name of the Tapo device")
 	flagName       = pflag.StringP("name", "n", "", "Name of the Tapo device. This is slow, it will perform a local discovery first. Ignored if --addr is specified")
 	flagEmail      = pflag.StringP("email", "e", "", "E-mail for login")
 	flagPassword   = pflag.StringP("password", "p", "", "Password for login")
@@ -319,8 +319,6 @@ func main() {
 		addr = *flagAddr
 	} else if *flagName != "" {
 		addr = *flagName
-	} else {
-		log.Fatalf("Cannot specify both --addr and --name")
 	}
 	switch strings.ToLower(cmd) {
 	case "on":
