@@ -23,7 +23,7 @@ import (
 
 var defaultTimeout = 10 * time.Second
 
-// This is returned when a Tapo device returns an HTTP 403.
+// ErrForbidden is returned when a Tapo device returns an HTTP 403.
 var ErrForbidden = errors.New("Forbidden")
 
 type TapoStatus int
@@ -92,7 +92,11 @@ func NewPlugFromString(host string, logger *log.Logger, opts ...PlugOption) (*Pl
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve host %q: %w", host, err)
 	}
-	return NewPlug(addrs[0], logger, opts...), nil
+	addr := addrs[0]
+	if addr.Is4In6() {
+		addr = addr.Unmap()
+	}
+	return NewPlug(addr, logger, opts...), nil
 }
 
 // NewPlug creates a new `Plug` for the given IP address.
