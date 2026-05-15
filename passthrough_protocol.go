@@ -16,7 +16,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/netip"
 	"strings"
 	"time"
 
@@ -34,7 +33,7 @@ type PassthroughSession struct {
 	Key        []byte
 	IV         []byte
 	ID         string
-	addr       netip.Addr
+	host       string
 	username   string
 	password   string
 	token      string
@@ -43,15 +42,15 @@ type PassthroughSession struct {
 	timeout    time.Duration
 }
 
-func (p *PassthroughSession) Addr() netip.Addr {
-	return p.addr
+func (p *PassthroughSession) Host() string {
+	return p.host
 }
 
 func (p *PassthroughSession) resetState() {
 	p.Key = nil
 	p.IV = nil
 	p.ID = ""
-	p.addr = netip.Addr{}
+	p.host = ""
 	p.username = ""
 	p.password = ""
 	p.token = ""
@@ -60,9 +59,9 @@ func (p *PassthroughSession) resetState() {
 	p.timeout = time.Duration(0)
 }
 
-func (p *PassthroughSession) Handshake(addr netip.Addr, username, password string) error {
+func (p *PassthroughSession) Handshake(host, username, password string) error {
 	p.resetState()
-	p.addr = addr
+	p.host = host
 	p.username = username
 	p.password = password
 	// generate an RSA key pair
@@ -90,7 +89,7 @@ func (p *PassthroughSession) Handshake(addr netip.Addr, username, password strin
 		return fmt.Errorf("failed to marshal handshake payload: %w", err)
 	}
 	p.log.Printf("Handshake request: %s", requestBytes)
-	u := fmt.Sprintf("http://%s/app", p.addr.String())
+	u := fmt.Sprintf("http://%s/app", p.host)
 	httpresp, err := http.Post(u, "application/json", bytes.NewBuffer(requestBytes))
 	if err != nil {
 		return fmt.Errorf("HTTP POST failed: %w", err)
@@ -149,7 +148,7 @@ func (s *PassthroughSession) Request(requestBytes []byte) (*UntypedResponse, err
 		return ret, err
 	}
 	// Token expired? Try to reauthenticate
-	if err := s.Handshake(s.addr, s.username, s.password); err != nil {
+	if err := s.Handshake(s.host, s.username, s.password); err != nil {
 		return nil, err
 	}
 	return s.request(requestBytes)
@@ -171,7 +170,7 @@ func (s *PassthroughSession) request(requestBytes []byte) (*UntypedResponse, err
 	s.log.Printf("Passthrough request: %s", passthroughRequestBytes)
 
 	// send it via http
-	u := fmt.Sprintf("http://%s/app", s.addr.String())
+	u := fmt.Sprintf("http://%s/app", s.host)
 	if s.token != "" {
 		u += "?token=" + s.token
 	}
