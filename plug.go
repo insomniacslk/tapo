@@ -7,15 +7,12 @@ package tapo
 // https://github.com/petretiandrea/plugp100/blob/main/plugp100/protocol/klap_protocol.py
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
-	"net"
-	"net/netip"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,7 +61,7 @@ func (te TapoStatus) Error() string {
 
 type Plug struct {
 	log                         *log.Logger
-	Addr                        netip.Addr
+	Host                        string
 	terminalUUID                uuid.UUID
 	session                     Session
 	retriesOnForbidden          uint
@@ -85,28 +82,16 @@ func OptionRetryOnCommunicationError(times uint) PlugOption {
 	}
 }
 
-// NewPlugFromString is a higher-level wrapper to NewPlug`, but it treats the string
-// as either an IP address or a hostname, trying to resolve the latter.
-func NewPlugFromString(host string, logger *log.Logger, opts ...PlugOption) (*Plug, error) {
-	addrs, err := net.DefaultResolver.LookupNetIP(context.Background(), "ip", host)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve host %q: %w", host, err)
-	}
-	addr := addrs[0]
-	if addr.Is4In6() {
-		addr = addr.Unmap()
-	}
-	return NewPlug(addr, logger, opts...), nil
-}
-
-// NewPlug creates a new `Plug` for the given IP address.
-func NewPlug(addr netip.Addr, logger *log.Logger, opts ...PlugOption) *Plug {
+// NewPlug creates a new `Plug` for the given host, which may be a hostname or
+// an IP address. The host is passed straight to the underlying HTTP requests,
+// so name resolution is delegated to the standard library.
+func NewPlug(host string, logger *log.Logger, opts ...PlugOption) *Plug {
 	if logger == nil {
 		logger = log.New(io.Discard, "", 0)
 	}
 	plug := Plug{
 		log:          logger,
-		Addr:         addr,
+		Host:         host,
 		terminalUUID: uuid.New(),
 	}
 	for _, opt := range opts {
@@ -119,11 +104,11 @@ func (p *Plug) Handshake(username, password string) error {
 	if p.session == nil {
 		// try the newer KLAP protocol first
 		ks := NewKlapSession(p.log)
-		if err := ks.Handshake(p.Addr, username, password); err != nil {
+		if err := ks.Handshake(p.Host, username, password); err != nil {
 			p.log.Printf("KLAP handshake failed, trying passthrough handshake")
 			// then try the older passthrough protocol
 			ps := NewPassthroughSession(p.log)
-			if err := ps.Handshake(p.Addr, username, password); err != nil {
+			if err := ps.Handshake(p.Host, username, password); err != nil {
 				return fmt.Errorf("passthrough handshake failed: %w", err)
 			}
 			request := NewLoginDeviceRequest(username, password)

@@ -99,10 +99,7 @@ func getPlug(cfg *cmdCfg, addr string) (*tapo.Plug, error) {
 		return nil, fmt.Errorf("no address specified")
 	}
 
-	plug, err := tapo.NewPlugFromString(addr, cfg.logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get new plug for addr %q: %w", addr, err)
-	}
+	plug := tapo.NewPlug(addr, cfg.logger)
 	if err := plug.Handshake(cfg.Email, cfg.Password); err != nil {
 		return nil, fmt.Errorf("login failed: %w", err)
 	}

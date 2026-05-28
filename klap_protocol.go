@@ -19,7 +19,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/cookiejar"
-	"net/netip"
 	"net/textproto"
 	"net/url"
 	"strconv"
@@ -35,7 +34,7 @@ func NewKlapSession(l *log.Logger) *KlapSession {
 
 type KlapSession struct {
 	log         *log.Logger
-	addr        netip.Addr
+	host        string
 	username    string
 	password    string
 	SessionID   string
@@ -50,8 +49,8 @@ type KlapSession struct {
 	initialized bool
 }
 
-func (s *KlapSession) Addr() netip.Addr {
-	return s.addr
+func (s *KlapSession) Host() string {
+	return s.host
 }
 
 func (s *KlapSession) secretBytes() []byte {
@@ -193,7 +192,7 @@ func (s *KlapSession) Request(payload []byte) (*UntypedResponse, error) {
 		return ret, err
 	}
 	// token expired or authentication needs refresh? Try to reauthenticate
-	if err := s.Handshake(s.addr, s.username, s.password); err != nil {
+	if err := s.Handshake(s.host, s.username, s.password); err != nil {
 		return nil, err
 	}
 	return s.request(payload)
@@ -208,7 +207,7 @@ func (s *KlapSession) request(payload []byte) (*UntypedResponse, error) {
 	qs.Add("seq", strconv.FormatInt(int64(seq), 10))
 	u := url.URL{
 		Scheme:   "http",
-		Host:     s.addr.String(),
+		Host:     s.host,
 		Path:     "/app/request",
 		RawQuery: qs.Encode(),
 	}
@@ -252,7 +251,7 @@ func (s *KlapSession) request(payload []byte) (*UntypedResponse, error) {
 }
 
 func (s *KlapSession) resetState() {
-	s.addr = netip.Addr{}
+	s.host = ""
 	s.username = ""
 	s.password = ""
 	s.SessionID = ""
@@ -267,21 +266,21 @@ func (s *KlapSession) resetState() {
 	s.initialized = false
 }
 
-func (s *KlapSession) Handshake(addr netip.Addr, username, password string) error {
+func (s *KlapSession) Handshake(host, username, password string) error {
 	s.resetState()
-	s.addr = addr
+	s.host = host
 	s.username = username
 	s.password = password
-	if err := s.handshake1(username, password, addr); err != nil {
+	if err := s.handshake1(username, password, host); err != nil {
 		return fmt.Errorf("KLAP handshake1 failed: %w", err)
 	}
-	return s.handshake2(addr)
+	return s.handshake2(host)
 }
 
-func (s *KlapSession) handshake2(target netip.Addr) error {
+func (s *KlapSession) handshake2(target string) error {
 	u := url.URL{
 		Scheme: "http",
-		Host:   target.String(),
+		Host:   target,
 		Path:   "/app/handshake2",
 	}
 	bytesToHash := append(s.RemoteSeed, s.LocalSeed...)
@@ -317,10 +316,10 @@ func (s *KlapSession) handshake2(target netip.Addr) error {
 	return nil
 }
 
-func (s *KlapSession) handshake1(username, password string, target netip.Addr) error {
+func (s *KlapSession) handshake1(username, password, target string) error {
 	u := url.URL{
 		Scheme: "http",
-		Host:   target.String(),
+		Host:   target,
 		Path:   "/app/handshake1",
 	}
 	var localSeed [16]byte

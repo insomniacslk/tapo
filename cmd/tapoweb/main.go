@@ -355,7 +355,7 @@ func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 			return nil, nil, fmt.Errorf("invalid IP '%s': %w", d.Result.IP.String(), err)
 		}
 		log.Printf("Getting info for '%s'", addr)
-		plug := tapo.NewPlug(addr, nil)
+		plug := tapo.NewPlug(addr.String(), nil)
 		if err := plug.Handshake(username, password); err != nil {
 			log.Printf("Warning: handshake failed for %s: %v", addr, err)
 			failed = append(failed, addr)
