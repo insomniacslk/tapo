@@ -88,15 +88,17 @@ func newRootHandler(st *state, cfg *Config) http.HandlerFunc {
 				return
 			}
 			// Redirect rather than render, so that reloading the page after a
-			// switch does not switch it again.
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			// switch does not switch it again. The sorting rides in the form's
+			// action and is echoed back here, so switching a plug does not
+			// bounce the reader back to a table sorted by name.
+			http.Redirect(w, r, parseSorting(r.URL.Query()).href(), http.StatusSeeOther)
 			return
 		}
 
 		cmd, ip := r.URL.Query().Get("cmd"), r.URL.Query().Get("ip")
 		switch cmd {
 		case "", "list":
-			renderPage(w, snap, cfg)
+			renderPage(w, snap, cfg, parseSorting(r.URL.Query()))
 		case "status":
 			d, found := snap.find(ip)
 			switch {

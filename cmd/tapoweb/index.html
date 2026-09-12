@@ -70,6 +70,18 @@
     border-bottom: 1px solid var(--line);
     white-space: nowrap;
    }
+   thead th a { color: inherit; text-decoration: none; }
+   thead th a:hover { color: var(--fg); }
+   thead th a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+   /* The arrow is drawn from aria-sort, so the attribute that tells a screen
+      reader how the table is sorted is the same one that tells everybody else.
+      An unsorted column keeps a faint double arrow: it says the column can be
+      sorted, and it stops the header changing width when it becomes the one
+      that is. */
+   thead th a::after { content: "\2195"; padding-left: 0.35em; color: var(--off); }
+   thead th[aria-sort="ascending"] a, thead th[aria-sort="descending"] a { color: var(--fg); }
+   thead th[aria-sort="ascending"] a::after { content: "\2191"; color: var(--accent); }
+   thead th[aria-sort="descending"] a::after { content: "\2193"; color: var(--accent); }
    tbody td { padding: 0.55rem 0.8rem; border-top: 1px solid var(--line); white-space: nowrap; }
    tbody tr:first-child td { border-top: 0; }
    tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
@@ -150,15 +162,22 @@
    <div class="table-wrap">
     <table>
      <thead>
+      <!--
+        Sorting is a plain link per column, resolved on the server. The table is
+        rendered from a list the refresh loop already holds, so re-rendering it
+        in another order talks to no plug and costs a map lookup; doing it here
+        rather than in the browser keeps the page working with the script
+        below removed, and makes a sorted table a URL that can be bookmarked.
+      -->
       <tr>
        <th>#</th>
-       <th>Name</th>
-       <th>IP</th>
-       <th>MAC</th>
-       <th>State</th>
-       <th>Today<br>kWh</th>
-       <th>Month<br>kWh</th>
-       {{if .ShowID}}<th>ID</th>{{end}}
+       <th aria-sort="{{.AriaSort "name"}}"><a href="{{.SortHref "name"}}">Name</a></th>
+       <th aria-sort="{{.AriaSort "ip"}}"><a href="{{.SortHref "ip"}}">IP</a></th>
+       <th aria-sort="{{.AriaSort "mac"}}"><a href="{{.SortHref "mac"}}">MAC</a></th>
+       <th aria-sort="{{.AriaSort "state"}}"><a href="{{.SortHref "state"}}">State</a></th>
+       <th aria-sort="{{.AriaSort "day"}}"><a href="{{.SortHref "day"}}">Today<br>kWh</a></th>
+       <th aria-sort="{{.AriaSort "month"}}"><a href="{{.SortHref "month"}}">Month<br>kWh</a></th>
+       {{if .ShowID}}<th aria-sort="{{.AriaSort "id"}}"><a href="{{.SortHref "id"}}">ID</a></th>{{end}}
       </tr>
      </thead>
      <tbody>
@@ -174,7 +193,7 @@
           at all. It also means a prefetcher, a crawler or a reloaded page
           cannot toggle anything, which the old GET links allowed.
         -->
-        <form method="post" action="/">
+        <form method="post" action="{{$.SelfHref}}">
          <input type="hidden" name="ip" value="{{.IP}}">
          <input type="hidden" name="cmd" value="{{if .On}}off{{else}}on{{end}}">
          <button type="submit" class="toggle{{if .On}} on{{end}}"
@@ -210,19 +229,55 @@
 
   <script>
    // The only JavaScript on the page: one delegated listener that copies a
-   // cell's value. Everything else -- switching a plug, refreshing the list --
-   // is a form and a meta refresh, so the page works with this file removed.
+   // cell's value. Everything else -- switching a plug, sorting the table,
+   // refreshing the list -- is a form, a link and a meta refresh, so the page
+   // works with this whole block removed.
+
+   // navigator.clipboard exists only in a SECURE CONTEXT, and this server is
+   // plain HTTP on a LAN address, so on that page it is simply not there: the
+   // previous version of this handler tested for it and returned, which made
+   // every click-to-copy on the page do nothing at all, silently. The old
+   // execCommand path is deprecated, and is also the only one that works here.
+   function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+     return navigator.clipboard.writeText(text);
+    }
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    // Off-screen rather than hidden: a display:none textarea cannot be
+    // selected, and scrolling the page to a focused one would be worse than
+    // the copy failing.
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try {
+     ok = document.execCommand("copy");
+    } catch (e) {
+     ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok ? Promise.resolve() : Promise.reject(new Error("copy refused"));
+   }
+
    document.querySelectorAll("[data-copy]").forEach(function (el) {
     el.classList.add("copyable");
+    el.title = "Click to copy";
    });
    document.addEventListener("click", function (ev) {
     var el = ev.target.closest("[data-copy]");
-    if (!el || !navigator.clipboard) {
+    if (!el) {
      return;
     }
-    navigator.clipboard.writeText(el.getAttribute("data-copy")).then(function () {
+    copyText(el.getAttribute("data-copy")).then(function () {
      el.classList.add("copied");
      setTimeout(function () { el.classList.remove("copied"); }, 1000);
+    }, function () {
+     // Nothing to do but leave the cell alone: claiming "copied" when the
+     // clipboard refused is worse than saying nothing.
     });
    });
   </script>
