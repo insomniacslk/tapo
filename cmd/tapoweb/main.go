@@ -36,267 +36,145 @@ var offIcon []byte
 //go:embed warning.png
 var warningIcon []byte
 
-func getListHTML(snap snapshot, cfg *Config) string {
-	devices, showID := snap.devices, cfg.ShowID
-	allIPs := make([]string, 0, len(devices))
-	for _, d := range devices {
-		allIPs = append(allIPs, `"`+d.info.IP+`"`)
-	}
-	ret := fmt.Sprintf(`<!DOCTYPE html>
-<html>
- <head>
-  <title>Tapo plugs</title>
-  <style>
-  body {
-    background-color: #282828;
-    color: #d3d3d3;
-  }
-  color: white;
-  a {
-  color: white
-  }
-  a:link {
-    color: white;
-  }
-  a:visited {
-    color: white;
-  }
-  a:hover {
-    color: yellow;
-  }
-  a:active {
-    color: yellow;
-  }
-  thead {
-   font-weight: bold;
-  }
-  .text-bold {
-   font-weight: bold;
-  }
-  table, tr, td {
-   border: 1px solid black;
-  }
-  </style>
-  <script>
-   var allIPs = [%s];
-   function updateAll() {
-    console.log("Updating status for " + allIPs);
-    for (let i=0; i<allIPs.length; i++) {
-     updateStatus("status_" + allIPs[i].replaceAll(".", "_"), allIPs[i]);
-    }
-   }
-   setInterval(updateAll, 10000);
-
-   function updateStatus(tagID, ip) {
-    var xmlhttp = new XMLHttpRequest();
-
-    xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == XMLHttpRequest.DONE) { // XMLHttpRequest.DONE == 4
-           img = document.getElementById(tagID);
-           if (xmlhttp.status == 200) {
-               if (xmlhttp.response == "on") {
-                img.src = "/icons/on.png";
-               img.setAttribute("onclick", "turnOff('" + tagID + "', '" + ip + "');");
-               } else if (xmlhttp.response == "off") {
-                img.src = "/icons/off.png";
-                img.setAttribute("onclick", "turnOn('" + tagID + "', '" + ip + "');");
-               } else {
-                console.log("failed to get status for " + ip + ": " + xmlhttp.response);
-               }
-           } else {
-               img.src = "/icons/warning.png";
-               console.log("failed to get status for " + ip + ": " + xmlhttp.status);
-           }
-        }
-    };
-
-    xmlhttp.open("GET", "/?cmd=status&ip=" + ip, true);
-    xmlhttp.send();
-   }
-
-   function turnOn(tagID, ip) {
-    var xmlhttp = new XMLHttpRequest();
-
-    xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == XMLHttpRequest.DONE) { // XMLHttpRequest.DONE == 4
-           if (xmlhttp.status == 200) {
-               updateStatus(tagID, ip);
-           } else {
-               console.log('failed to turn plug on, got HTTP ' + xmlhttp.status);
-           }
-        }
-    };
-
-    xmlhttp.open("GET", "/?cmd=on&ip=" + ip, true);
-    xmlhttp.send();
-   }
-
-   function turnOff(tagID, ip) {
-    var xmlhttp = new XMLHttpRequest();
-
-    xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == XMLHttpRequest.DONE) { // XMLHttpRequest.DONE == 4
-           if (xmlhttp.status == 200) {
-               updateStatus(tagID, ip);
-           } else {
-               alert('failed to turn plug off, got HTTP ' + xmlhttp.status);
-           }
-        }
-    };
-
-    xmlhttp.open("GET", "/?cmd=off&ip=" + ip, true);
-    xmlhttp.send();
-   }
-  </script>
- </head>
- <body>
-`, strings.Join(allIPs, ", "))
-	if snap.stale(time.Duration(cfg.Interval)) {
-		ret += fmt.Sprintf("  <p><strong>Stale:</strong> last successful update %s ago (%v)</p>\n",
-			time.Since(snap.updatedAt).Truncate(time.Second), snap.lastErr)
-	}
-	ret += "  <table>\n"
-	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"\">Energy<br />today (kWh)</td><td>Energy <br />month (kWh)</td>"
-	if showID {
-		ret += "<td class=\"text.bold\">ID</td>"
-	}
-	ret += "</tr></thead>\n"
-	for idx, d := range devices {
-		ret += "   <tr>\n"
-		ret += fmt.Sprintf("    <td>%d</td>\n", idx+1)
-		ret += "    <td class=\"text-bold\" onclick=\"navigator.clipboard.writeText('" + d.info.DecodedNickname + "')\">" + d.info.DecodedNickname + "</td>\n"
-		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.IP + "')\">" + d.info.IP + "</td>\n"
-		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.MAC + "')\">" + d.info.MAC + "</td>\n"
-		statusTagID := "status_" + strings.Replace(d.info.IP, ".", "_", -1)
-		callback := "turnOn('" + statusTagID + "', '" + d.info.IP + "')"
-		if d.info.DeviceON {
-			callback = "turnOff('" + statusTagID + "', '" + d.info.IP + "')"
-		}
-		state := "<img id='" + statusTagID + "' src=\"/icons/off.png\" height=\"16px;\" onclick=\"" + callback + "\" />"
-		if d.info.DeviceON {
-			state = "<img id='" + statusTagID + "' src=\"/icons/on.png\" height=\"16px;\" onclick=\"" + callback + "\" />"
-		}
-
-		ret += "    <td>" + state + "</td>\n"
-		var energyInfoDay, energyInfoMonth string
-		if d.energy != nil {
-			energyInfoDay = fmt.Sprintf("%.1f", float64(d.energy.TodayEnergy)/1000)
-			energyInfoMonth = fmt.Sprintf("%.1f", float64(d.energy.MonthEnergy)/1000)
-		}
-		ret += "    <td>" + energyInfoDay + "</td>\n"
-		ret += "    <td>" + energyInfoMonth + "</td>\n"
-		if showID {
-			ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.DeviceID + "')\">" + d.info.DeviceID + "</td>\n"
-		}
-		ret += "   </tr>\n"
-	}
-	return ret + "  </table>\n </body>\n</html>\n"
-}
-
-// TODO consolidate into a single function for /icons/*
-func getIconOn(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "image/png")
-	if _, err := w.Write(onIcon); err != nil {
-		log.Printf("Warning: failed to write ON icon: %v", err)
-	}
-}
-
-// Waiting for the new HTTP mux in Go 1.22
-/*
+// getIcon serves the three icons compiled into the binary. One handler rather
+// than the three near-identical ones it replaces, and without the Go 1.22
+// pattern matching the old TODO was waiting for -- trimming the prefix works
+// on every version this module builds with.
 func getIcon(w http.ResponseWriter, r *http.Request) {
-       status := http.StatusOK
-       var iconBytes []byte
-       icon := r.PathValue("icon")
-       switch icon {
-       case "on":
-               iconBytes = onIcon
-       case "off":
-               iconBytes = offIcon
-       case "warning":
-               iconBytes = warningIcon
-       default:
-               status = http.StatusNotFound
-               iconBytes = nil
-       }
-}
-*/
-
-func getIconOff(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "image/png")
-	if _, err := w.Write(offIcon); err != nil {
-		log.Printf("Warning: failed to write OFF icon: %v", err)
+	var icon []byte
+	switch strings.TrimPrefix(r.URL.Path, "/icons/") {
+	case "on.png":
+		icon = onIcon
+	case "off.png":
+		icon = offIcon
+	case "warning.png":
+		icon = warningIcon
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	// The icons are embedded, so they change only when the binary does.
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write(icon); err != nil {
+		log.Printf("Warning: failed to write icon: %v", err)
 	}
 }
 
-func getIconWarning(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "image/png")
-	if _, err := w.Write(warningIcon); err != nil {
-		log.Printf("Warning: failed to write WARNING icon: %v", err)
-	}
-}
-
+// newRootHandler serves the device list and the commands that act on it.
+//
+// There are two interfaces here on purpose. The PAGE switches a plug with a
+// form, so it is a POST, and a reload, a prefetch or a crawler cannot turn
+// anything on -- the old page did it with GET links driven by XMLHttpRequest,
+// which every one of those can follow. The GET query interface is kept exactly
+// as it was, because it is the scripting interface and something outside this
+// repository may be using it.
 func newRootHandler(st *state, cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cmd := r.URL.Query().Get("cmd")
-		ip := r.URL.Query().Get("ip")
-		var (
-			status = http.StatusOK
-			msg    string
-		)
 		// One consistent view for the whole request. The refresh goroutine can
 		// replace the device list between two statements otherwise, which is
 		// what the three `// RACE CONDITIONS AHEAD!` comments this replaces
 		// were about.
 		snap := st.get()
-		if ip == "" && (cmd == "status" || cmd == "on" || cmd == "off") {
-			status = http.StatusBadRequest
-			msg = "Missing IP address"
-		} else {
-			switch cmd {
-			case "status":
-				d, found := snap.find(ip)
-				switch {
-				case found:
-					info, err := d.plug.GetDeviceInfo()
-					if err != nil {
-						status = http.StatusInternalServerError
-						msg = fmt.Sprintf("failed to get plug status: %v", err)
-						break
-					}
-					msg = "off"
-					if info.DeviceON {
-						msg = "on"
-					}
-				case snap.hasFailed(ip):
-					status = http.StatusGone
-					msg = fmt.Sprintf("device with IP %s failed to respond", ip)
-				default:
-					status = http.StatusNotFound
-					msg = "404 Not Found"
-				}
-			case "on", "off":
-				d, found := snap.find(ip)
-				if !found {
-					status = http.StatusNotFound
-					msg = "404 Not Found"
-					break
-				}
-				if err := d.plug.SetDeviceInfo(cmd == "on"); err != nil {
-					status = http.StatusInternalServerError
-					msg = fmt.Sprintf("failed to turn plug %s: %v", cmd, err)
-				}
-			case "", "list":
-				status = http.StatusOK
-				msg = getListHTML(snap, cfg)
-			default:
-				status = http.StatusBadRequest
-				msg = fmt.Sprintf("invalid cmd '%s'", cmd)
+
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "invalid form", http.StatusBadRequest)
+				return
 			}
+			cmd, ip := r.PostFormValue("cmd"), r.PostFormValue("ip")
+			if err := switchPlug(st, snap, cmd, ip); err != nil {
+				http.Error(w, err.Error(), statusFor(err))
+				return
+			}
+			// Redirect rather than render, so that reloading the page after a
+			// switch does not switch it again.
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
 		}
-		w.WriteHeader(status)
-		if _, err := io.WriteString(w, msg); err != nil {
-			log.Printf("Failed to write response: %v", err)
+
+		cmd, ip := r.URL.Query().Get("cmd"), r.URL.Query().Get("ip")
+		switch cmd {
+		case "", "list":
+			renderPage(w, snap, cfg)
+		case "status":
+			d, found := snap.find(ip)
+			switch {
+			case ip == "":
+				http.Error(w, "Missing IP address", http.StatusBadRequest)
+			case found:
+				info, err := d.plug.GetDeviceInfo()
+				if err != nil {
+					http.Error(w, fmt.Sprintf("failed to get plug status: %v", err), http.StatusInternalServerError)
+					return
+				}
+				state := "off"
+				if info.DeviceON {
+					state = "on"
+				}
+				writeString(w, state)
+			case snap.hasFailed(ip):
+				http.Error(w, fmt.Sprintf("device with IP %s failed to respond", ip), http.StatusGone)
+			default:
+				http.NotFound(w, r)
+			}
+		case "on", "off":
+			if err := switchPlug(st, snap, cmd, ip); err != nil {
+				http.Error(w, err.Error(), statusFor(err))
+				return
+			}
+			writeString(w, cmd)
+		default:
+			http.Error(w, fmt.Sprintf("invalid cmd '%s'", cmd), http.StatusBadRequest)
 		}
+	}
+}
+
+// errNoSuchDevice and errBadRequest carry the HTTP status a switch failure
+// should get without making switchPlug know about HTTP.
+var (
+	errNoSuchDevice = errors.New("no such device")
+	errBadRequest   = errors.New("bad request")
+)
+
+func statusFor(err error) int {
+	switch {
+	case errors.Is(err, errNoSuchDevice):
+		return http.StatusNotFound
+	case errors.Is(err, errBadRequest):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+// switchPlug turns one plug on or off and records the new state.
+//
+// Recording it matters because the page is rendered from the cached device
+// list: without this the redirect after a switch would show the OLD state
+// until the next refresh, which reads exactly like the switch having failed.
+func switchPlug(st *state, snap snapshot, cmd, ip string) error {
+	on := cmd == "on"
+	if !on && cmd != "off" {
+		return fmt.Errorf("%w: invalid cmd '%s'", errBadRequest, cmd)
+	}
+	if ip == "" {
+		return fmt.Errorf("%w: missing IP address", errBadRequest)
+	}
+	d, found := snap.find(ip)
+	if !found {
+		return fmt.Errorf("%w: %s", errNoSuchDevice, ip)
+	}
+	if err := d.plug.SetDeviceInfo(on); err != nil {
+		return fmt.Errorf("failed to turn plug %s: %w", cmd, err)
+	}
+	st.setDeviceState(ip, on)
+	return nil
+}
+
+func writeString(w http.ResponseWriter, s string) {
+	if _, err := io.WriteString(w, s); err != nil {
+		log.Printf("Failed to write response: %v", err)
 	}
 }
 
@@ -443,13 +321,7 @@ func run(cfg *Config) error {
 	mux.HandleFunc("/", newRootHandler(st, cfg))
 	mux.HandleFunc("/healthz", newHealthHandler())
 	mux.HandleFunc("/readyz", newReadyHandler(st))
-	// waiting for Go 1.22...
-	/*
-		mux.HandleFunc("/icons/{icon}.png", getIcon)
-	*/
-	mux.HandleFunc("/icons/on.png", getIconOn)
-	mux.HandleFunc("/icons/off.png", getIconOff)
-	mux.HandleFunc("/icons/warning.png", getIconWarning)
+	mux.HandleFunc("/icons/", getIcon)
 
 	srv := &http.Server{
 		Addr:    cfg.Listen,

@@ -104,6 +104,20 @@ func (s *state) refresh(cfg *Config) error {
 	return nil
 }
 
+// setDeviceState records that a plug was switched, so the page rendered
+// immediately afterwards shows what the user just did rather than what the
+// last discovery found.
+func (s *state) setDeviceState(ip string, on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.snap.devices {
+		if s.snap.devices[i].info.IP == ip {
+			s.snap.devices[i].info.DeviceON = on
+			return
+		}
+	}
+}
+
 // refreshLoop refreshes until ctx is cancelled, backing off on failure.
 func (s *state) refreshLoop(ctx context.Context, cfg *Config) {
 	backoff := minRetryInterval
