@@ -230,7 +230,7 @@ func (p *Plug) GetDeviceUsage() (*DeviceUsage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	p.log.Printf("GetDeviceUsage response: %v", response, response)
+	p.log.Printf("GetDeviceUsage response: %v", response)
 	var usageResp GetDeviceUsageResponse
 	usageResp.ErrorCode = response.ErrorCode
 	if response.Result != nil {

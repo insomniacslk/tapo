@@ -7,19 +7,24 @@ package main
 // done via broadcast UDP.
 
 import (
+	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/insomniacslk/tapo"
-	"github.com/spf13/pflag"
+	"github.com/spf13/cobra"
 )
 
 //go:embed on.png
@@ -31,311 +36,188 @@ var offIcon []byte
 //go:embed warning.png
 var warningIcon []byte
 
+// getIcon serves the three icons compiled into the binary. One handler rather
+// than the three near-identical ones it replaces, and without the Go 1.22
+// pattern matching the old TODO was waiting for -- trimming the prefix works
+// on every version this module builds with.
+func getIcon(w http.ResponseWriter, r *http.Request) {
+	var icon []byte
+	switch strings.TrimPrefix(r.URL.Path, "/icons/") {
+	case "on.png":
+		icon = onIcon
+	case "off.png":
+		icon = offIcon
+	case "warning.png":
+		icon = warningIcon
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	// The icons are embedded, so they change only when the binary does.
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if _, err := w.Write(icon); err != nil {
+		log.Printf("Warning: failed to write icon: %v", err)
+	}
+}
+
+// newRootHandler serves the device list and the commands that act on it.
+//
+// There are two interfaces here on purpose. The PAGE switches a plug with a
+// form, so it is a POST, and a reload, a prefetch or a crawler cannot turn
+// anything on -- the old page did it with GET links driven by XMLHttpRequest,
+// which every one of those can follow. The GET query interface is kept exactly
+// as it was, because it is the scripting interface and something outside this
+// repository may be using it.
+func newRootHandler(st *state, cfg *Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// One consistent view for the whole request. The refresh goroutine can
+		// replace the device list between two statements otherwise, which is
+		// what the three `// RACE CONDITIONS AHEAD!` comments this replaces
+		// were about.
+		snap := st.get()
+
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "invalid form", http.StatusBadRequest)
+				return
+			}
+			cmd, ip := r.PostFormValue("cmd"), r.PostFormValue("ip")
+			if err := switchPlug(st, snap, cmd, ip); err != nil {
+				http.Error(w, err.Error(), statusFor(err))
+				return
+			}
+			// Redirect rather than render, so that reloading the page after a
+			// switch does not switch it again.
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+
+		cmd, ip := r.URL.Query().Get("cmd"), r.URL.Query().Get("ip")
+		switch cmd {
+		case "", "list":
+			renderPage(w, snap, cfg)
+		case "status":
+			d, found := snap.find(ip)
+			switch {
+			case ip == "":
+				http.Error(w, "Missing IP address", http.StatusBadRequest)
+			case found:
+				info, err := d.plug.GetDeviceInfo()
+				if err != nil {
+					http.Error(w, fmt.Sprintf("failed to get plug status: %v", err), http.StatusInternalServerError)
+					return
+				}
+				state := "off"
+				if info.DeviceON {
+					state = "on"
+				}
+				writeString(w, state)
+			case snap.hasFailed(ip):
+				http.Error(w, fmt.Sprintf("device with IP %s failed to respond", ip), http.StatusGone)
+			default:
+				http.NotFound(w, r)
+			}
+		case "on", "off":
+			if err := switchPlug(st, snap, cmd, ip); err != nil {
+				http.Error(w, err.Error(), statusFor(err))
+				return
+			}
+			writeString(w, cmd)
+		default:
+			http.Error(w, fmt.Sprintf("invalid cmd '%s'", cmd), http.StatusBadRequest)
+		}
+	}
+}
+
+// errNoSuchDevice and errBadRequest carry the HTTP status a switch failure
+// should get without making switchPlug know about HTTP.
 var (
-	flagListen   = pflag.StringP("listen", "l", ":7490", "Listen host:port address")
-	flagUsername = pflag.StringP("username", "u", "", "TP-Link username (usually an email)")
-	flagPassword = pflag.StringP("password", "p", "", "TP-Link password")
-	flagInterval = pflag.DurationP("interval", "i", time.Minute, "Update interval")
+	errNoSuchDevice = errors.New("no such device")
+	errBadRequest   = errors.New("bad request")
 )
 
-func getListHTML(devices []Device) string {
-	allIPs := make([]string, 0, len(devices))
-	for _, d := range devices {
-		allIPs = append(allIPs, `"`+d.info.IP+`"`)
-	}
-	ret := fmt.Sprintf(`<!DOCTYPE html>
-<html>
- <head>
-  <title>Tapo plugs</title>
-  <style>
-  body {
-    background-color: #282828;
-    color: #d3d3d3;
-  }
-  color: white;
-  a {
-  color: white
-  }
-  a:link {
-    color: white;
-  }
-  a:visited {
-    color: white;
-  }
-  a:hover {
-    color: yellow;
-  }
-  a:active {
-    color: yellow;
-  }
-  thead {
-   font-weight: bold;
-  }
-  .text-bold {
-   font-weight: bold;
-  }
-  table, tr, td {
-   border: 1px solid black;
-  }
-  </style>
-  <script>
-   var allIPs = [%s];
-   function updateAll() {
-    console.log("Updating status for " + allIPs);
-    for (let i=0; i<allIPs.length; i++) {
-     updateStatus("status_" + allIPs[i].replaceAll(".", "_"), allIPs[i]);
-    }
-   }
-   setInterval(updateAll, 10000);
-
-   function updateStatus(tagID, ip) {
-    var xmlhttp = new XMLHttpRequest();
-
-    xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == XMLHttpRequest.DONE) { // XMLHttpRequest.DONE == 4
-           img = document.getElementById(tagID);
-           if (xmlhttp.status == 200) {
-               if (xmlhttp.response == "on") {
-                img.src = "/icons/on.png";
-               img.setAttribute("onclick", "turnOff('" + tagID + "', '" + ip + "');");
-               } else if (xmlhttp.response == "off") {
-                img.src = "/icons/off.png";
-                img.setAttribute("onclick", "turnOn('" + tagID + "', '" + ip + "');");
-               } else {
-                console.log("failed to get status for " + ip + ": " + xmlhttp.response);
-               }
-           } else {
-               img.src = "/icons/warning.png";
-               console.log("failed to get status for " + ip + ": " + xmlhttp.status);
-           }
-        }
-    };
-
-    xmlhttp.open("GET", "/?cmd=status&ip=" + ip, true);
-    xmlhttp.send();
-   }
-
-   function turnOn(tagID, ip) {
-    var xmlhttp = new XMLHttpRequest();
-
-    xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == XMLHttpRequest.DONE) { // XMLHttpRequest.DONE == 4
-           if (xmlhttp.status == 200) {
-               updateStatus(tagID, ip);
-           } else {
-               console.log('failed to turn plug on, got HTTP ' + xmlhttp.status);
-           }
-        }
-    };
-
-    xmlhttp.open("GET", "/?cmd=on&ip=" + ip, true);
-    xmlhttp.send();
-   }
-
-   function turnOff(tagID, ip) {
-    var xmlhttp = new XMLHttpRequest();
-
-    xmlhttp.onreadystatechange = function() {
-        if (xmlhttp.readyState == XMLHttpRequest.DONE) { // XMLHttpRequest.DONE == 4
-           if (xmlhttp.status == 200) {
-               updateStatus(tagID, ip);
-           } else {
-               alert('failed to turn plug off, got HTTP ' + xmlhttp.status);
-           }
-        }
-    };
-
-    xmlhttp.open("GET", "/?cmd=off&ip=" + ip, true);
-    xmlhttp.send();
-   }
-  </script>
- </head>
- <body>
-`, strings.Join(allIPs, ", "))
-	ret += "  <table>\n"
-	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"\">Energy<br />today (kWh)</td><td>Energy <br />month (kWh)</td><td class=\"text.bold\">ID</td></tr></thead>\n"
-	for idx, d := range devices {
-		ret += "   <tr>\n"
-		ret += fmt.Sprintf("    <td>%d</td>\n", idx+1)
-		ret += "    <td class=\"text-bold\" onclick=\"navigator.clipboard.writeText('" + d.info.DecodedNickname + "')\">" + d.info.DecodedNickname + "</td>\n"
-		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.IP + "')\">" + d.info.IP + "</td>\n"
-		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.MAC + "')\">" + d.info.MAC + "</td>\n"
-		statusTagID := "status_" + strings.Replace(d.info.IP, ".", "_", -1)
-		callback := "turnOn('" + statusTagID + "', '" + d.info.IP + "')"
-		if d.info.DeviceON {
-			callback = "turnOff('" + statusTagID + "', '" + d.info.IP + "')"
-		}
-		state := "<img id='" + statusTagID + "' src=\"/icons/off.png\" height=\"16px;\" onclick=\"" + callback + "\" />"
-		if d.info.DeviceON {
-			state = "<img id='" + statusTagID + "' src=\"/icons/on.png\" height=\"16px;\" onclick=\"" + callback + "\" />"
-		}
-
-		ret += "    <td>" + state + "</td>\n"
-		var energyInfoDay, energyInfoMonth string
-		if d.energy != nil {
-			energyInfoDay = fmt.Sprintf("%.1f", float64(d.energy.TodayEnergy)/1000)
-			energyInfoMonth = fmt.Sprintf("%.1f", float64(d.energy.MonthEnergy)/1000)
-		}
-		ret += "    <td>" + energyInfoDay + "</td>\n"
-		ret += "    <td>" + energyInfoMonth + "</td>\n"
-		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.DeviceID + "')\">" + d.info.DeviceID + "</td>\n"
-		ret += "   </tr>\n"
-	}
-	return ret + "  </table>\n </body>\n</html>\n"
-}
-
-// TODO consolidate into a single function for /icons/*
-func getIconOn(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "image/png")
-	if _, err := w.Write(onIcon); err != nil {
-		log.Printf("Warning: failed to write ON icon: %v", err)
+func statusFor(err error) int {
+	switch {
+	case errors.Is(err, errNoSuchDevice):
+		return http.StatusNotFound
+	case errors.Is(err, errBadRequest):
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
 	}
 }
 
-// Waiting for the new HTTP mux in Go 1.22
-/*
-func getIcon(w http.ResponseWriter, r *http.Request) {
-       status := http.StatusOK
-       var iconBytes []byte
-       icon := r.PathValue("icon")
-       switch icon {
-       case "on":
-               iconBytes = onIcon
-       case "off":
-               iconBytes = offIcon
-       case "warning":
-               iconBytes = warningIcon
-       default:
-               status = http.StatusNotFound
-               iconBytes = nil
-       }
+// switchPlug turns one plug on or off and records the new state.
+//
+// Recording it matters because the page is rendered from the cached device
+// list: without this the redirect after a switch would show the OLD state
+// until the next refresh, which reads exactly like the switch having failed.
+func switchPlug(st *state, snap snapshot, cmd, ip string) error {
+	on := cmd == "on"
+	if !on && cmd != "off" {
+		return fmt.Errorf("%w: invalid cmd '%s'", errBadRequest, cmd)
+	}
+	if ip == "" {
+		return fmt.Errorf("%w: missing IP address", errBadRequest)
+	}
+	d, found := snap.find(ip)
+	if !found {
+		return fmt.Errorf("%w: %s", errNoSuchDevice, ip)
+	}
+	if err := d.plug.SetDeviceInfo(on); err != nil {
+		return fmt.Errorf("failed to turn plug %s: %w", cmd, err)
+	}
+	st.setDeviceState(ip, on)
+	return nil
 }
-*/
 
-func getIconOff(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "image/png")
-	if _, err := w.Write(offIcon); err != nil {
-		log.Printf("Warning: failed to write OFF icon: %v", err)
+func writeString(w http.ResponseWriter, s string) {
+	if _, err := io.WriteString(w, s); err != nil {
+		log.Printf("Failed to write response: %v", err)
 	}
 }
 
-func getIconWarning(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "image/png")
-	if _, err := w.Write(warningIcon); err != nil {
-		log.Printf("Warning: failed to write WARNING icon: %v", err)
-	}
-}
-
-func getRootHandler(username, password string, interval time.Duration) func(http.ResponseWriter, *http.Request) {
-	var (
-		devices []Device
-		failed  []netip.Addr
-		err     error
-	)
-	go func() {
-		for {
-			devices, failed, err = getAllDevices(username, password)
-			if err != nil {
-				log.Fatalf("Failed to get devices: %v", err)
-			}
-			log.Printf("Got %d devices and %d failed devices", len(devices), len(failed))
-			time.Sleep(interval)
-		}
-	}()
-	return func(w http.ResponseWriter, r *http.Request) {
-		cmd := r.URL.Query().Get("cmd")
-		ip := r.URL.Query().Get("ip")
-		var (
-			status = http.StatusOK
-			msg    string
-		)
-		if ip == "" && (cmd == "status" || cmd == "on" || cmd == "off") {
-			status = http.StatusBadRequest
-			msg = "Missing IP address"
-		} else {
-			switch cmd {
-			case "status":
-				// RACE CONDITIONS AHEAD!
-				found := false
-				for _, d := range devices {
-					if d.info.IP == ip {
-						found = true
-						info, err := d.plug.GetDeviceInfo()
-						if err != nil {
-							status = http.StatusInternalServerError
-							msg = fmt.Sprintf("failed to get plug status: %v", err)
-							break
-						}
-						msg = "off"
-						if info.DeviceON {
-							msg = "on"
-						}
-					}
-				}
-				for _, d := range failed {
-					if d.String() == ip {
-						status = http.StatusGone
-						msg = fmt.Sprintf("device with IP %s failed to respond", ip)
-					}
-				}
-				if !found {
-					status = http.StatusNotFound
-					msg = "404 Not Found"
-				}
-			case "on":
-				// RACE CONDITIONS AHEAD!
-				found := false
-				for _, d := range devices {
-					if d.info.IP == ip {
-						found = true
-						if err := d.plug.SetDeviceInfo(true); err != nil {
-							status = http.StatusInternalServerError
-							msg = fmt.Sprintf("failed to turn plug on: %v", err)
-							break
-						}
-					}
-				}
-				if !found {
-					status = http.StatusNotFound
-					msg = "404 Not Found"
-				}
-			case "off":
-				// RACE CONDITIONS AHEAD!
-				found := false
-				for _, d := range devices {
-					if d.info.IP == ip {
-						found = true
-						if err := d.plug.SetDeviceInfo(false); err != nil {
-							status = http.StatusInternalServerError
-							msg = fmt.Sprintf("failed to turn plug off: %v", err)
-							break
-						}
-					}
-				}
-				if !found {
-					status = http.StatusNotFound
-					msg = "404 Not Found"
-				}
-			case "", "list":
-				status = http.StatusOK
-				msg = getListHTML(devices)
-			default:
-				status = http.StatusBadRequest
-				msg = fmt.Sprintf("invalid cmd '%s'", cmd)
-			}
-		}
-		w.WriteHeader(status)
-		if _, err := io.WriteString(w, msg); err != nil {
+// newHealthHandler answers a liveness probe. It is deliberately unconditional:
+// the process being able to serve a request is the whole claim, and tying
+// liveness to the state of the plugs would restart a perfectly healthy server
+// because the network went away.
+func newHealthHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := io.WriteString(w, "ok\n"); err != nil {
 			log.Printf("Failed to write response: %v", err)
 		}
 	}
 }
 
-type Device struct {
-	plug   *tapo.Plug
-	info   *tapo.DeviceInfo
-	energy *tapo.EnergyUsage
+// newReadyHandler answers a readiness probe: ready once there has ever been a
+// successful refresh.
+//
+// It does NOT go unready when a later refresh fails, and that asymmetry is the
+// point. Serving a stale page that says it is stale is better than being
+// pulled out of rotation and serving nothing at all, whereas answering before
+// the first discovery has finished would serve a convincingly empty table.
+func newReadyHandler(st *state) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		snap := st.get()
+		if snap.updatedAt.IsZero() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			if _, err := io.WriteString(w, "no successful discovery yet\n"); err != nil {
+				log.Printf("Failed to write response: %v", err)
+			}
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		if _, err := fmt.Fprintf(w, "ok, last discovery %s\n", snap.updatedAt.Format(time.RFC3339)); err != nil {
+			log.Printf("Failed to write response: %v", err)
+		}
+	}
 }
+
+// errNoDevices is returned by a refresh that succeeded and found nothing. See
+// state.refresh for why that is a failure rather than an empty result.
+var errNoDevices = errors.New("discovery found no devices at all")
 
 func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 	client := tapo.NewClient(nil)
@@ -385,21 +267,97 @@ func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 	return devices, failed, nil
 }
 
-func main() {
-	pflag.Parse()
+func newRootCommand() *cobra.Command {
+	def := defaultConfig()
+	cmd := &cobra.Command{
+		Use:   progname,
+		Short: "A web view of the Tapo plugs on the local network",
+		Long: progname + ` serves a page listing every Tapo plug it can find, with a
+switch for each one. Discovery is broadcast UDP, so it has to run in the same
+collision domain as the plugs.
 
-	http.HandleFunc("/", getRootHandler(*flagUsername, *flagPassword, *flagInterval))
-	// waiting for Go 1.22...
-	/*
-		mux := http.NewServeMux()
-		mux.HandleFunc("/", getRootHandler(*flagUsername, *flagPassword, *flagInterval))
-		mux.HandleFunc("/icons/{icon}.png", getIcon)
-	*/
-	http.HandleFunc("/icons/on.png", getIconOn)
-	http.HandleFunc("/icons/off.png", getIconOff)
-	http.HandleFunc("/icons/warning.png", getIconWarning)
-	log.Printf("Listening on %s", *flagListen)
-	if err := http.ListenAndServe(*flagListen, nil); err != nil {
-		log.Fatalf("HTTP server failed: %v", err)
+Settings come from four places, each overriding the one before it: the built-in
+defaults, the JSON config file, the environment, and these flags. There is one
+name per setting, not three -- the config key is the flag name with underscores
+and the environment variable is ` + envPrefix + ` plus the flag name upper-cased,
+so --password-file is "password_file" and $` + envName("password-file") + `.
+
+Prefer the environment or --password-file to --password: a password on the
+command line is readable by every local user in /proc/<pid>/cmdline, and is
+copied into journald's _CMDLINE field on every line the process logs.`,
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := resolveConfig(cmd.Flags())
+			if err != nil {
+				return err
+			}
+			return run(cfg)
+		},
+	}
+	f := cmd.Flags()
+	f.StringP("config", "c", defaultConfigFile, "Configuration file. Absent is fine at this default path, an error if the path is given explicitly")
+	f.StringP("listen", "l", def.Listen, "Listen host:port address")
+	f.StringP("username", "u", def.Username, "TP-Link username (usually an email)")
+	f.StringP("password", "p", def.Password, "TP-Link password. Visible to every local user in /proc/<pid>/cmdline -- prefer $"+envName("password")+" or --password-file")
+	f.String("password-file", def.PasswordFile, "Read the TP-Link password from this file, without its trailing newline. Mutually exclusive with --password")
+	f.DurationP("interval", "i", time.Duration(def.Interval), "Device refresh interval")
+	f.BoolP("show-id", "I", def.ShowID, "Show the Tapo device ID column")
+	return cmd
+}
+
+func run(cfg *Config) error {
+	// SIGINT/SIGTERM cancel the context, which stops the refresh loop and
+	// starts a graceful shutdown. Without this the process is killed mid
+	// response, which under Kubernetes is every rollout.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	st := newState()
+	go st.refreshLoop(ctx, cfg)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", newRootHandler(st, cfg))
+	mux.HandleFunc("/healthz", newHealthHandler())
+	mux.HandleFunc("/readyz", newReadyHandler(st))
+	mux.HandleFunc("/icons/", getIcon)
+
+	srv := &http.Server{
+		Addr:    cfg.Listen,
+		Handler: mux,
+		// A handler can talk to a plug, and the library gives those calls a
+		// 10s timeout of their own, so the write timeout has to leave room for
+		// one of them plus the response.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		log.Printf("Listening on %s", cfg.Listen)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		log.Printf("Shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	}
+}
+
+func main() {
+	if err := newRootCommand().Execute(); err != nil {
+		log.Fatalf("Error: %v", err)
 	}
 }

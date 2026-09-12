@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tapo plugs</title>
+  {{- if .RefreshSeconds}}
+  <!--
+    The page refreshes itself with a meta tag rather than with a timer in
+    JavaScript. It costs the plugs nothing: the table is rendered from the
+    list the background refresh already keeps, so a reload is a read of
+    memory, not a round trip to twenty devices.
+  -->
+  <meta http-equiv="refresh" content="{{.RefreshSeconds}}">
+  {{- end}}
+  <style>
+   :root {
+    --bg: #17191c;
+    --panel: #1f2226;
+    --panel-2: #24282d;
+    --line: #31363d;
+    --fg: #e6e8ea;
+    --fg-dim: #9aa3ad;
+    --accent: #7cc4a4;
+    --accent-dim: #2f4a3f;
+    --warn: #e0b050;
+    --warn-dim: #4a3d1f;
+    --off: #5a6169;
+   }
+   * { box-sizing: border-box; }
+   body {
+    margin: 0;
+    padding: 1.5rem 1rem 3rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+   }
+   main { max-width: 62rem; margin: 0 auto; }
+   header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.75rem; margin-bottom: 1rem; }
+   h1 { font-size: 1.35rem; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+   .meta { margin: 0; color: var(--fg-dim); font-size: 0.85rem; }
+   .banner {
+    margin: 0 0 1rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--warn-dim);
+    border-left: 3px solid var(--warn);
+    border-radius: 6px;
+    background: rgba(224, 176, 80, 0.07);
+    color: var(--fg);
+    font-size: 0.9rem;
+   }
+   .banner strong { color: var(--warn); }
+   .banner code { color: var(--fg-dim); font-size: 0.85em; word-break: break-word; }
+   .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+   }
+   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+   thead th {
+    padding: 0.6rem 0.8rem;
+    text-align: left;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+   }
+   tbody td { padding: 0.55rem 0.8rem; border-top: 1px solid var(--line); white-space: nowrap; }
+   tbody tr:first-child td { border-top: 0; }
+   tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
+   td.num { color: var(--fg-dim); width: 1%; }
+   td.name { font-weight: 600; }
+   td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; color: var(--fg-dim); }
+   td.energy { text-align: right; }
+   .dash { color: var(--off); }
+   /* Copyable cells are the one place this page uses JavaScript at all, so
+      they must not LOOK interactive unless the script is there to make them
+      so: the class is added by the script itself. */
+   .copyable { cursor: pointer; position: relative; }
+   .copyable:hover { color: var(--fg); }
+   .copyable.copied::after {
+    content: "copied";
+    position: absolute;
+    top: 50%;
+    right: 0.4rem;
+    transform: translateY(-50%);
+    font-size: 0.65rem;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+   }
+   form { margin: 0; }
+   .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.6rem 0.25rem 0.45rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel-2);
+    color: var(--fg-dim);
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+   }
+   .toggle img { display: block; width: 14px; height: 14px; }
+   .toggle.on { border-color: var(--accent-dim); background: rgba(124, 196, 164, 0.1); color: var(--accent); }
+   .toggle:hover { border-color: var(--fg-dim); }
+   .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+   .unreachable td { color: var(--warn); }
+   .unreachable img { vertical-align: -2px; width: 14px; height: 14px; }
+   .empty { padding: 2rem 1rem; text-align: center; color: var(--fg-dim); }
+   footer { margin-top: 1rem; color: var(--off); font-size: 0.78rem; }
+   @media (max-width: 34rem) {
+    body { padding: 1rem 0.6rem 2rem; }
+    thead th, tbody td { padding: 0.5rem; }
+   }
+  </style>
+ </head>
+ <body>
+  <main>
+   <header>
+    <h1>Tapo plugs</h1>
+    <p class="meta">
+     {{len .Devices}} plug{{if ne (len .Devices) 1}}s{{end}}
+     {{- with .Failed}} &middot; {{len .}} unreachable{{end}}
+     &middot; {{if .NeverUpdated}}no discovery yet{{else}}updated {{.UpdatedAgo}} ago{{end}}
+    </p>
+   </header>
+
+   {{if .Stale}}
+   <p class="banner">
+    <strong>Stale.</strong>
+    {{if .NeverUpdated}}
+     No discovery has succeeded yet, so this list is empty because nothing is known,
+     not because nothing is there.
+    {{else}}
+     The last successful discovery was {{.StaleFor}} ago; the list below is what it found.
+    {{end}}
+    {{- with .LastErr}}<br><code>{{.}}</code>{{end}}
+   </p>
+   {{end}}
+
+   {{if or .Devices .Failed}}
+   <div class="table-wrap">
+    <table>
+     <thead>
+      <tr>
+       <th>#</th>
+       <th>Name</th>
+       <th>IP</th>
+       <th>MAC</th>
+       <th>State</th>
+       <th>Today<br>kWh</th>
+       <th>Month<br>kWh</th>
+       {{if .ShowID}}<th>ID</th>{{end}}
+      </tr>
+     </thead>
+     <tbody>
+      {{range .Devices}}
+      <tr>
+       <td class="num">{{.Index}}</td>
+       <td class="name" data-copy="{{.Name}}">{{.Name}}</td>
+       <td class="mono" data-copy="{{.IP}}">{{.IP}}</td>
+       <td class="mono" data-copy="{{.MAC}}">{{.MAC}}</td>
+       <td>
+        <!--
+          A plain form, so switching a plug is a POST and needs no JavaScript
+          at all. It also means a prefetcher, a crawler or a reloaded page
+          cannot toggle anything, which the old GET links allowed.
+        -->
+        <form method="post" action="/">
+         <input type="hidden" name="ip" value="{{.IP}}">
+         <input type="hidden" name="cmd" value="{{if .On}}off{{else}}on{{end}}">
+         <button type="submit" class="toggle{{if .On}} on{{end}}"
+                 title="Turn {{.Name}} {{if .On}}off{{else}}on{{end}}">
+          <img src="/icons/{{if .On}}on{{else}}off{{end}}.png" alt="">
+          {{if .On}}On{{else}}Off{{end}}
+         </button>
+        </form>
+       </td>
+       <td class="energy">{{if .EnergyDay}}{{.EnergyDay}}{{else}}<span class="dash">&mdash;</span>{{end}}</td>
+       <td class="energy">{{if .EnergyMonth}}{{.EnergyMonth}}{{else}}<span class="dash">&mdash;</span>{{end}}</td>
+       {{if $.ShowID}}<td class="mono" data-copy="{{.ID}}">{{.ID}}</td>{{end}}
+      </tr>
+      {{end}}
+      {{range .Failed}}
+      <tr class="unreachable">
+       <td class="num"></td>
+       <td colspan="{{if $.ShowID}}7{{else}}6{{end}}">
+        <img src="/icons/warning.png" alt="">
+        {{.}} answered discovery but not the handshake
+       </td>
+      </tr>
+      {{end}}
+     </tbody>
+    </table>
+   </div>
+   {{else}}
+   <div class="table-wrap"><p class="empty">No plugs found.</p></div>
+   {{end}}
+
+   <footer>Discovery is broadcast UDP, so only plugs in this collision domain appear here.</footer>
+  </main>
+
+  <script>
+   // The only JavaScript on the page: one delegated listener that copies a
+   // cell's value. Everything else -- switching a plug, refreshing the list --
+   // is a form and a meta refresh, so the page works with this file removed.
+   document.querySelectorAll("[data-copy]").forEach(function (el) {
+    el.classList.add("copyable");
+   });
+   document.addEventListener("click", function (ev) {
+    var el = ev.target.closest("[data-copy]");
+    if (!el || !navigator.clipboard) {
+     return;
+    }
+    navigator.clipboard.writeText(el.getAttribute("data-copy")).then(function () {
+     el.classList.add("copied");
+     setTimeout(function () { el.classList.remove("copied"); }, 1000);
+    });
+   });
+  </script>
+ </body>
+</html>
