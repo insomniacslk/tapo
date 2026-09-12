@@ -7,15 +7,20 @@ package main
 // done via broadcast UDP.
 
 import (
+	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/insomniacslk/tapo"
@@ -31,7 +36,8 @@ var offIcon []byte
 //go:embed warning.png
 var warningIcon []byte
 
-func getListHTML(devices []Device, showID bool) string {
+func getListHTML(snap snapshot, cfg *Config) string {
+	devices, showID := snap.devices, cfg.ShowID
 	allIPs := make([]string, 0, len(devices))
 	for _, d := range devices {
 		allIPs = append(allIPs, `"`+d.info.IP+`"`)
@@ -145,6 +151,10 @@ func getListHTML(devices []Device, showID bool) string {
  </head>
  <body>
 `, strings.Join(allIPs, ", "))
+	if snap.stale(time.Duration(cfg.Interval)) {
+		ret += fmt.Sprintf("  <p><strong>Stale:</strong> last successful update %s ago (%v)</p>\n",
+			time.Since(snap.updatedAt).Truncate(time.Second), snap.lastErr)
+	}
 	ret += "  <table>\n"
 	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"\">Energy<br />today (kWh)</td><td>Energy <br />month (kWh)</td>"
 	if showID {
@@ -225,22 +235,7 @@ func getIconWarning(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getRootHandler(cfg *Config) func(http.ResponseWriter, *http.Request) {
-	var (
-		devices []Device
-		failed  []netip.Addr
-		err     error
-	)
-	go func() {
-		for {
-			devices, failed, err = getAllDevices(cfg.Username, cfg.Password)
-			if err != nil {
-				log.Fatalf("Failed to get devices: %v", err)
-			}
-			log.Printf("Got %d devices and %d failed devices", len(devices), len(failed))
-			time.Sleep(time.Duration(cfg.Interval))
-		}
-	}()
+func newRootHandler(st *state, cfg *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cmd := r.URL.Query().Get("cmd")
 		ip := r.URL.Query().Get("ip")
@@ -248,76 +243,51 @@ func getRootHandler(cfg *Config) func(http.ResponseWriter, *http.Request) {
 			status = http.StatusOK
 			msg    string
 		)
+		// One consistent view for the whole request. The refresh goroutine can
+		// replace the device list between two statements otherwise, which is
+		// what the three `// RACE CONDITIONS AHEAD!` comments this replaces
+		// were about.
+		snap := st.get()
 		if ip == "" && (cmd == "status" || cmd == "on" || cmd == "off") {
 			status = http.StatusBadRequest
 			msg = "Missing IP address"
 		} else {
 			switch cmd {
 			case "status":
-				// RACE CONDITIONS AHEAD!
-				found := false
-				for _, d := range devices {
-					if d.info.IP == ip {
-						found = true
-						info, err := d.plug.GetDeviceInfo()
-						if err != nil {
-							status = http.StatusInternalServerError
-							msg = fmt.Sprintf("failed to get plug status: %v", err)
-							break
-						}
-						msg = "off"
-						if info.DeviceON {
-							msg = "on"
-						}
+				d, found := snap.find(ip)
+				switch {
+				case found:
+					info, err := d.plug.GetDeviceInfo()
+					if err != nil {
+						status = http.StatusInternalServerError
+						msg = fmt.Sprintf("failed to get plug status: %v", err)
+						break
 					}
-				}
-				for _, d := range failed {
-					if d.String() == ip {
-						status = http.StatusGone
-						msg = fmt.Sprintf("device with IP %s failed to respond", ip)
+					msg = "off"
+					if info.DeviceON {
+						msg = "on"
 					}
-				}
-				if !found {
+				case snap.hasFailed(ip):
+					status = http.StatusGone
+					msg = fmt.Sprintf("device with IP %s failed to respond", ip)
+				default:
 					status = http.StatusNotFound
 					msg = "404 Not Found"
 				}
-			case "on":
-				// RACE CONDITIONS AHEAD!
-				found := false
-				for _, d := range devices {
-					if d.info.IP == ip {
-						found = true
-						if err := d.plug.SetDeviceInfo(true); err != nil {
-							status = http.StatusInternalServerError
-							msg = fmt.Sprintf("failed to turn plug on: %v", err)
-							break
-						}
-					}
-				}
+			case "on", "off":
+				d, found := snap.find(ip)
 				if !found {
 					status = http.StatusNotFound
 					msg = "404 Not Found"
+					break
 				}
-			case "off":
-				// RACE CONDITIONS AHEAD!
-				found := false
-				for _, d := range devices {
-					if d.info.IP == ip {
-						found = true
-						if err := d.plug.SetDeviceInfo(false); err != nil {
-							status = http.StatusInternalServerError
-							msg = fmt.Sprintf("failed to turn plug off: %v", err)
-							break
-						}
-					}
-				}
-				if !found {
-					status = http.StatusNotFound
-					msg = "404 Not Found"
+				if err := d.plug.SetDeviceInfo(cmd == "on"); err != nil {
+					status = http.StatusInternalServerError
+					msg = fmt.Sprintf("failed to turn plug %s: %v", cmd, err)
 				}
 			case "", "list":
 				status = http.StatusOK
-				msg = getListHTML(devices, cfg.ShowID)
+				msg = getListHTML(snap, cfg)
 			default:
 				status = http.StatusBadRequest
 				msg = fmt.Sprintf("invalid cmd '%s'", cmd)
@@ -330,11 +300,46 @@ func getRootHandler(cfg *Config) func(http.ResponseWriter, *http.Request) {
 	}
 }
 
-type Device struct {
-	plug   *tapo.Plug
-	info   *tapo.DeviceInfo
-	energy *tapo.EnergyUsage
+// newHealthHandler answers a liveness probe. It is deliberately unconditional:
+// the process being able to serve a request is the whole claim, and tying
+// liveness to the state of the plugs would restart a perfectly healthy server
+// because the network went away.
+func newHealthHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if _, err := io.WriteString(w, "ok\n"); err != nil {
+			log.Printf("Failed to write response: %v", err)
+		}
+	}
 }
+
+// newReadyHandler answers a readiness probe: ready once there has ever been a
+// successful refresh.
+//
+// It does NOT go unready when a later refresh fails, and that asymmetry is the
+// point. Serving a stale page that says it is stale is better than being
+// pulled out of rotation and serving nothing at all, whereas answering before
+// the first discovery has finished would serve a convincingly empty table.
+func newReadyHandler(st *state) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		snap := st.get()
+		if snap.updatedAt.IsZero() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			if _, err := io.WriteString(w, "no successful discovery yet\n"); err != nil {
+				log.Printf("Failed to write response: %v", err)
+			}
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		if _, err := fmt.Fprintf(w, "ok, last discovery %s\n", snap.updatedAt.Format(time.RFC3339)); err != nil {
+			log.Printf("Failed to write response: %v", err)
+		}
+	}
+}
+
+// errNoDevices is returned by a refresh that succeeded and found nothing. See
+// state.refresh for why that is a failure rather than an empty result.
+var errNoDevices = errors.New("discovery found no devices at all")
 
 func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 	client := tapo.NewClient(nil)
@@ -425,18 +430,58 @@ copied into journald's _CMDLINE field on every line the process logs.`,
 }
 
 func run(cfg *Config) error {
-	http.HandleFunc("/", getRootHandler(cfg))
+	// SIGINT/SIGTERM cancel the context, which stops the refresh loop and
+	// starts a graceful shutdown. Without this the process is killed mid
+	// response, which under Kubernetes is every rollout.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	st := newState()
+	go st.refreshLoop(ctx, cfg)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", newRootHandler(st, cfg))
+	mux.HandleFunc("/healthz", newHealthHandler())
+	mux.HandleFunc("/readyz", newReadyHandler(st))
 	// waiting for Go 1.22...
 	/*
-		mux := http.NewServeMux()
-		mux.HandleFunc("/", getRootHandler(cfg))
 		mux.HandleFunc("/icons/{icon}.png", getIcon)
 	*/
-	http.HandleFunc("/icons/on.png", getIconOn)
-	http.HandleFunc("/icons/off.png", getIconOff)
-	http.HandleFunc("/icons/warning.png", getIconWarning)
-	log.Printf("Listening on %s", cfg.Listen)
-	return http.ListenAndServe(cfg.Listen, nil)
+	mux.HandleFunc("/icons/on.png", getIconOn)
+	mux.HandleFunc("/icons/off.png", getIconOff)
+	mux.HandleFunc("/icons/warning.png", getIconWarning)
+
+	srv := &http.Server{
+		Addr:    cfg.Listen,
+		Handler: mux,
+		// A handler can talk to a plug, and the library gives those calls a
+		// 10s timeout of their own, so the write timeout has to leave room for
+		// one of them plus the response.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		log.Printf("Listening on %s", cfg.Listen)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		log.Printf("Shutting down")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	}
 }
 
 func main() {
