@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/insomniacslk/tapo"
-	"github.com/spf13/pflag"
+	"github.com/spf13/cobra"
 )
 
 //go:embed on.png
@@ -31,14 +31,7 @@ var offIcon []byte
 //go:embed warning.png
 var warningIcon []byte
 
-var (
-	flagListen   = pflag.StringP("listen", "l", ":7490", "Listen host:port address")
-	flagUsername = pflag.StringP("username", "u", "", "TP-Link username (usually an email)")
-	flagPassword = pflag.StringP("password", "p", "", "TP-Link password")
-	flagInterval = pflag.DurationP("interval", "i", time.Minute, "Update interval")
-)
-
-func getListHTML(devices []Device) string {
+func getListHTML(devices []Device, showID bool) string {
 	allIPs := make([]string, 0, len(devices))
 	for _, d := range devices {
 		allIPs = append(allIPs, `"`+d.info.IP+`"`)
@@ -153,7 +146,11 @@ func getListHTML(devices []Device) string {
  <body>
 `, strings.Join(allIPs, ", "))
 	ret += "  <table>\n"
-	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"\">Energy<br />today (kWh)</td><td>Energy <br />month (kWh)</td><td class=\"text.bold\">ID</td></tr></thead>\n"
+	ret += "   <thead><tr><td class=\"text.bold\">#</td><td class=\"text.bold\">Name</td><td class=\"text.bold\">IP</td><td class=\"text.bold\">MAC</td><td class=\"text.bold\">State</td><td class=\"\">Energy<br />today (kWh)</td><td>Energy <br />month (kWh)</td>"
+	if showID {
+		ret += "<td class=\"text.bold\">ID</td>"
+	}
+	ret += "</tr></thead>\n"
 	for idx, d := range devices {
 		ret += "   <tr>\n"
 		ret += fmt.Sprintf("    <td>%d</td>\n", idx+1)
@@ -178,7 +175,9 @@ func getListHTML(devices []Device) string {
 		}
 		ret += "    <td>" + energyInfoDay + "</td>\n"
 		ret += "    <td>" + energyInfoMonth + "</td>\n"
-		ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.DeviceID + "')\">" + d.info.DeviceID + "</td>\n"
+		if showID {
+			ret += "    <td onclick=\"navigator.clipboard.writeText('" + d.info.DeviceID + "')\">" + d.info.DeviceID + "</td>\n"
+		}
 		ret += "   </tr>\n"
 	}
 	return ret + "  </table>\n </body>\n</html>\n"
@@ -226,7 +225,7 @@ func getIconWarning(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getRootHandler(username, password string, interval time.Duration) func(http.ResponseWriter, *http.Request) {
+func getRootHandler(cfg *Config) func(http.ResponseWriter, *http.Request) {
 	var (
 		devices []Device
 		failed  []netip.Addr
@@ -234,12 +233,12 @@ func getRootHandler(username, password string, interval time.Duration) func(http
 	)
 	go func() {
 		for {
-			devices, failed, err = getAllDevices(username, password)
+			devices, failed, err = getAllDevices(cfg.Username, cfg.Password)
 			if err != nil {
 				log.Fatalf("Failed to get devices: %v", err)
 			}
 			log.Printf("Got %d devices and %d failed devices", len(devices), len(failed))
-			time.Sleep(interval)
+			time.Sleep(time.Duration(cfg.Interval))
 		}
 	}()
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -318,7 +317,7 @@ func getRootHandler(username, password string, interval time.Duration) func(http
 				}
 			case "", "list":
 				status = http.StatusOK
-				msg = getListHTML(devices)
+				msg = getListHTML(devices, cfg.ShowID)
 			default:
 				status = http.StatusBadRequest
 				msg = fmt.Sprintf("invalid cmd '%s'", cmd)
@@ -385,21 +384,63 @@ func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 	return devices, failed, nil
 }
 
-func main() {
-	pflag.Parse()
+func newRootCommand() *cobra.Command {
+	def := defaultConfig()
+	cmd := &cobra.Command{
+		Use:   progname,
+		Short: "A web view of the Tapo plugs on the local network",
+		Long: progname + ` serves a page listing every Tapo plug it can find, with a
+switch for each one. Discovery is broadcast UDP, so it has to run in the same
+collision domain as the plugs.
 
-	http.HandleFunc("/", getRootHandler(*flagUsername, *flagPassword, *flagInterval))
+Settings come from four places, each overriding the one before it: the built-in
+defaults, the JSON config file, the environment, and these flags. There is one
+name per setting, not three -- the config key is the flag name with underscores
+and the environment variable is ` + envPrefix + ` plus the flag name upper-cased,
+so --password-file is "password_file" and $` + envName("password-file") + `.
+
+Prefer the environment or --password-file to --password: a password on the
+command line is readable by every local user in /proc/<pid>/cmdline, and is
+copied into journald's _CMDLINE field on every line the process logs.`,
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := resolveConfig(cmd.Flags())
+			if err != nil {
+				return err
+			}
+			return run(cfg)
+		},
+	}
+	f := cmd.Flags()
+	f.StringP("config", "c", defaultConfigFile, "Configuration file. Absent is fine at this default path, an error if the path is given explicitly")
+	f.StringP("listen", "l", def.Listen, "Listen host:port address")
+	f.StringP("username", "u", def.Username, "TP-Link username (usually an email)")
+	f.StringP("password", "p", def.Password, "TP-Link password. Visible to every local user in /proc/<pid>/cmdline -- prefer $"+envName("password")+" or --password-file")
+	f.String("password-file", def.PasswordFile, "Read the TP-Link password from this file, without its trailing newline. Mutually exclusive with --password")
+	f.DurationP("interval", "i", time.Duration(def.Interval), "Device refresh interval")
+	f.BoolP("show-id", "I", def.ShowID, "Show the Tapo device ID column")
+	return cmd
+}
+
+func run(cfg *Config) error {
+	http.HandleFunc("/", getRootHandler(cfg))
 	// waiting for Go 1.22...
 	/*
 		mux := http.NewServeMux()
-		mux.HandleFunc("/", getRootHandler(*flagUsername, *flagPassword, *flagInterval))
+		mux.HandleFunc("/", getRootHandler(cfg))
 		mux.HandleFunc("/icons/{icon}.png", getIcon)
 	*/
 	http.HandleFunc("/icons/on.png", getIconOn)
 	http.HandleFunc("/icons/off.png", getIconOff)
 	http.HandleFunc("/icons/warning.png", getIconWarning)
-	log.Printf("Listening on %s", *flagListen)
-	if err := http.ListenAndServe(*flagListen, nil); err != nil {
-		log.Fatalf("HTTP server failed: %v", err)
+	log.Printf("Listening on %s", cfg.Listen)
+	return http.ListenAndServe(cfg.Listen, nil)
+}
+
+func main() {
+	if err := newRootCommand().Execute(); err != nil {
+		log.Fatalf("Error: %v", err)
 	}
 }
