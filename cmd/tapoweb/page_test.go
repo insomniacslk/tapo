@@ -28,8 +28,13 @@ func plugInfo(name, ip string, on bool) Device {
 
 func render(t *testing.T, snap snapshot, cfg *Config) string {
 	t.Helper()
+	return renderSorted(t, snap, cfg, defaultSorting)
+}
+
+func renderSorted(t *testing.T, snap snapshot, cfg *Config, s sorting) string {
+	t.Helper()
 	rec := httptest.NewRecorder()
-	renderPage(rec, snap, cfg)
+	renderPage(rec, snap, cfg, s)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("renderPage status = %d, want 200", rec.Code)
 	}
@@ -127,7 +132,7 @@ func TestPageStaleBanner(t *testing.T) {
 func TestRefreshSecondsHasAFloor(t *testing.T) {
 	cfg := testConfig()
 	cfg.Interval = 1e9 // one second, as xjson.Duration
-	if got := newPageData(snapshot{}, cfg).RefreshSeconds; got != minRefreshSeconds {
+	if got := newPageData(snapshot{}, cfg, defaultSorting).RefreshSeconds; got != minRefreshSeconds {
 		t.Errorf("RefreshSeconds = %d, want the floor %d", got, minRefreshSeconds)
 	}
 }

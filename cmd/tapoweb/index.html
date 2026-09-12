@@ -70,6 +70,18 @@
     border-bottom: 1px solid var(--line);
     white-space: nowrap;
    }
+   thead th a { color: inherit; text-decoration: none; }
+   thead th a:hover { color: var(--fg); }
+   thead th a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+   /* The arrow is drawn from aria-sort, so the attribute that tells a screen
+      reader how the table is sorted is the same one that tells everybody else.
+      An unsorted column keeps a faint double arrow: it says the column can be
+      sorted, and it stops the header changing width when it becomes the one
+      that is. */
+   thead th a::after { content: "\2195"; padding-left: 0.35em; color: var(--off); }
+   thead th[aria-sort="ascending"] a, thead th[aria-sort="descending"] a { color: var(--fg); }
+   thead th[aria-sort="ascending"] a::after { content: "\2191"; color: var(--accent); }
+   thead th[aria-sort="descending"] a::after { content: "\2193"; color: var(--accent); }
    tbody td { padding: 0.55rem 0.8rem; border-top: 1px solid var(--line); white-space: nowrap; }
    tbody tr:first-child td { border-top: 0; }
    tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
@@ -150,15 +162,22 @@
    <div class="table-wrap">
     <table>
      <thead>
+      <!--
+        Sorting is a plain link per column, resolved on the server. The table is
+        rendered from a list the refresh loop already holds, so re-rendering it
+        in another order talks to no plug and costs a map lookup; doing it here
+        rather than in the browser keeps the page working with the script
+        below removed, and makes a sorted table a URL that can be bookmarked.
+      -->
       <tr>
        <th>#</th>
-       <th>Name</th>
-       <th>IP</th>
-       <th>MAC</th>
-       <th>State</th>
-       <th>Today<br>kWh</th>
-       <th>Month<br>kWh</th>
-       {{if .ShowID}}<th>ID</th>{{end}}
+       <th aria-sort="{{.AriaSort "name"}}"><a href="{{.SortHref "name"}}">Name</a></th>
+       <th aria-sort="{{.AriaSort "ip"}}"><a href="{{.SortHref "ip"}}">IP</a></th>
+       <th aria-sort="{{.AriaSort "mac"}}"><a href="{{.SortHref "mac"}}">MAC</a></th>
+       <th aria-sort="{{.AriaSort "state"}}"><a href="{{.SortHref "state"}}">State</a></th>
+       <th aria-sort="{{.AriaSort "day"}}"><a href="{{.SortHref "day"}}">Today<br>kWh</a></th>
+       <th aria-sort="{{.AriaSort "month"}}"><a href="{{.SortHref "month"}}">Month<br>kWh</a></th>
+       {{if .ShowID}}<th aria-sort="{{.AriaSort "id"}}"><a href="{{.SortHref "id"}}">ID</a></th>{{end}}
       </tr>
      </thead>
      <tbody>
@@ -174,7 +193,7 @@
           at all. It also means a prefetcher, a crawler or a reloaded page
           cannot toggle anything, which the old GET links allowed.
         -->
-        <form method="post" action="/">
+        <form method="post" action="{{$.SelfHref}}">
          <input type="hidden" name="ip" value="{{.IP}}">
          <input type="hidden" name="cmd" value="{{if .On}}off{{else}}on{{end}}">
          <button type="submit" class="toggle{{if .On}} on{{end}}"

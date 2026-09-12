@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/netip"
 	"time"
 )
 
@@ -39,9 +40,22 @@ type pageDevice struct {
 	On          bool
 	EnergyDay   string
 	EnergyMonth string
+
+	// The values the sort actually compares, which are not the ones above: the
+	// energy strings are rounded to a tenth of a kWh, so sorting on them would
+	// call 0.04 and 0.0 equal, and the IP is text, which orders .10 before .9.
+	// They are unexported, so the template cannot render them by mistake.
+	addr        netip.Addr
+	energyDay   int
+	energyMonth int
+	hasEnergy   bool
 }
 
 type pageData struct {
+	// sort is the column and direction the table is in. It is unexported
+	// because the template has no business rendering it: what the template
+	// needs are the three methods below.
+	sort           sorting
 	Devices        []pageDevice
 	Failed         []string
 	ShowID         bool
@@ -53,9 +67,10 @@ type pageData struct {
 	RefreshSeconds int
 }
 
-func newPageData(snap snapshot, cfg *Config) pageData {
+func newPageData(snap snapshot, cfg *Config, s sorting) pageData {
 	interval := time.Duration(cfg.Interval)
 	data := pageData{
+		sort:           s,
 		ShowID:         cfg.ShowID,
 		Stale:          snap.stale(interval),
 		NeverUpdated:   snap.updatedAt.IsZero(),
@@ -72,23 +87,34 @@ func newPageData(snap snapshot, cfg *Config) pageData {
 	if snap.lastErr != nil {
 		data.LastErr = snap.lastErr.Error()
 	}
-	for i, d := range snap.devices {
+	for _, d := range snap.devices {
 		pd := pageDevice{
-			Index: i + 1,
-			Name:  d.info.DecodedNickname,
-			IP:    d.info.IP,
-			MAC:   d.info.MAC,
-			ID:    d.info.DeviceID,
-			On:    d.info.DeviceON,
+			Name: d.info.DecodedNickname,
+			IP:   d.info.IP,
+			MAC:  d.info.MAC,
+			ID:   d.info.DeviceID,
+			On:   d.info.DeviceON,
 		}
+		// A plug can be configured by hostname, in which case there is no
+		// address to sort numerically and compareIP falls back to the text.
+		pd.addr, _ = netip.ParseAddr(d.info.IP)
 		// A plug that does not report energy leaves both blank, which the
 		// template renders as a dash: zero would be a measurement, and this is
 		// the absence of one.
 		if d.energy != nil {
+			pd.hasEnergy = true
+			pd.energyDay, pd.energyMonth = d.energy.TodayEnergy, d.energy.MonthEnergy
 			pd.EnergyDay = fmt.Sprintf("%.1f", float64(d.energy.TodayEnergy)/1000)
 			pd.EnergyMonth = fmt.Sprintf("%.1f", float64(d.energy.MonthEnergy)/1000)
 		}
 		data.Devices = append(data.Devices, pd)
+	}
+	sortDevices(data.Devices, s)
+	// The number is numbered after the sort, because it is the row's position
+	// in the table as displayed: it counts 1..n whatever the table is sorted
+	// by, rather than following one plug around as the order changes.
+	for i := range data.Devices {
+		data.Devices[i].Index = i + 1
 	}
 	for _, addr := range snap.failed {
 		data.Failed = append(data.Failed, addr.String())
@@ -101,9 +127,9 @@ func newPageData(snap snapshot, cfg *Config) pageData {
 // It renders into a buffer first so that a template error cannot leave a half
 // written 200 on the wire: either the whole page is written, or the client is
 // told the request failed.
-func renderPage(w http.ResponseWriter, snap snapshot, cfg *Config) {
+func renderPage(w http.ResponseWriter, snap snapshot, cfg *Config, s sorting) {
 	var buf bytes.Buffer
-	if err := indexTemplate.Execute(&buf, newPageData(snap, cfg)); err != nil {
+	if err := indexTemplate.Execute(&buf, newPageData(snap, cfg, s)); err != nil {
 		log.Printf("Failed to render the page: %v", err)
 		http.Error(w, "failed to render the page", http.StatusInternalServerError)
 		return
@@ -112,4 +138,39 @@ func renderPage(w http.ResponseWriter, snap snapshot, cfg *Config) {
 	if _, err := buf.WriteTo(w); err != nil {
 		log.Printf("Failed to write the page: %v", err)
 	}
+}
+
+// SortHref is where a column header links: the same table sorted by that
+// column, flipped to the other direction if it is the sorted column already.
+func (p pageData) SortHref(name string) (string, error) {
+	k, err := lookupSortKey(name)
+	if err != nil {
+		return "", err
+	}
+	return p.sort.flip(k).href(), nil
+}
+
+// AriaSort is a header's aria-sort attribute: "ascending", "descending" or
+// "none". The stylesheet draws the arrow from that attribute, so the sorted
+// column is recorded in exactly one place and what a screen reader announces
+// cannot drift from what everyone else sees.
+func (p pageData) AriaSort(name string) (string, error) {
+	k, err := lookupSortKey(name)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case p.sort.key != k:
+		return "none", nil
+	case p.sort.desc:
+		return "descending", nil
+	default:
+		return "ascending", nil
+	}
+}
+
+// SelfHref is the page's own URL, which the switch forms post to so that
+// switching a plug does not throw the sorting away.
+func (p pageData) SelfHref() string {
+	return p.sort.href()
 }
