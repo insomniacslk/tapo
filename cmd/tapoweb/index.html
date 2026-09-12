@@ -229,19 +229,55 @@
 
   <script>
    // The only JavaScript on the page: one delegated listener that copies a
-   // cell's value. Everything else -- switching a plug, refreshing the list --
-   // is a form and a meta refresh, so the page works with this file removed.
+   // cell's value. Everything else -- switching a plug, sorting the table,
+   // refreshing the list -- is a form, a link and a meta refresh, so the page
+   // works with this whole block removed.
+
+   // navigator.clipboard exists only in a SECURE CONTEXT, and this server is
+   // plain HTTP on a LAN address, so on that page it is simply not there: the
+   // previous version of this handler tested for it and returned, which made
+   // every click-to-copy on the page do nothing at all, silently. The old
+   // execCommand path is deprecated, and is also the only one that works here.
+   function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+     return navigator.clipboard.writeText(text);
+    }
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    // Off-screen rather than hidden: a display:none textarea cannot be
+    // selected, and scrolling the page to a focused one would be worse than
+    // the copy failing.
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try {
+     ok = document.execCommand("copy");
+    } catch (e) {
+     ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok ? Promise.resolve() : Promise.reject(new Error("copy refused"));
+   }
+
    document.querySelectorAll("[data-copy]").forEach(function (el) {
     el.classList.add("copyable");
+    el.title = "Click to copy";
    });
    document.addEventListener("click", function (ev) {
     var el = ev.target.closest("[data-copy]");
-    if (!el || !navigator.clipboard) {
+    if (!el) {
      return;
     }
-    navigator.clipboard.writeText(el.getAttribute("data-copy")).then(function () {
+    copyText(el.getAttribute("data-copy")).then(function () {
      el.classList.add("copied");
      setTimeout(function () { el.classList.remove("copied"); }, 1000);
+    }, function () {
+     // Nothing to do but leave the cell alone: claiming "copied" when the
+     // clipboard refused is worse than saying nothing.
     });
    });
   </script>
