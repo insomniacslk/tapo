@@ -104,12 +104,24 @@ func (p *Plug) Handshake(username, password string) error {
 	if p.session == nil {
 		// try the newer KLAP protocol first
 		ks := NewKlapSession(p.log)
-		if err := ks.Handshake(p.Host, username, password); err != nil {
-			p.log.Printf("KLAP handshake failed, trying passthrough handshake")
+		if kerr := ks.Handshake(p.Host, username, password); kerr != nil {
+			p.log.Printf("KLAP handshake failed (%v), trying TPAP handshake", kerr)
+			ts := NewTpapSession(p.log)
+			terr := ts.Handshake(p.Host, username, password)
+			if terr == nil {
+				p.session = ts
+				return nil
+			}
+			// A TPAP device must not fall back to passthrough, which does not
+			// authenticate the peer.
+			if !errors.Is(terr, ErrNotTPAP) {
+				return fmt.Errorf("KLAP and TPAP handshakes failed: %w", errors.Join(kerr, terr))
+			}
+			p.log.Printf("TPAP handshake failed (%v), trying passthrough handshake", terr)
 			// then try the older passthrough protocol
 			ps := NewPassthroughSession(p.log)
 			if err := ps.Handshake(p.Host, username, password); err != nil {
-				return fmt.Errorf("passthrough handshake failed: %w", err)
+				return fmt.Errorf("passthrough handshake failed: %w", errors.Join(kerr, terr, err))
 			}
 			request := NewLoginDeviceRequest(username, password)
 			requestBytes, err := json.Marshal(request)

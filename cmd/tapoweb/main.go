@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -221,6 +222,10 @@ func newReadyHandler(st *state) http.HandlerFunc {
 // state.refresh for why that is a failure rather than an empty result.
 var errNoDevices = errors.New("discovery found no devices at all")
 
+// rejected holds the plugs that refused the credentials, so no refresh logs in
+// to them again.
+var rejected sync.Map
+
 func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 	client := tapo.NewClient(nil)
 	discovered, _, err := client.Discover()
@@ -239,8 +244,16 @@ func getAllDevices(username, password string) ([]Device, []netip.Addr, error) {
 			return nil, nil, fmt.Errorf("invalid IP '%s': %w", d.Result.IP.String(), err)
 		}
 		log.Printf("Getting info for '%s'", addr)
+		if _, ok := rejected.Load(addr); ok {
+			failed = append(failed, addr)
+			continue
+		}
 		plug := tapo.NewPlug(addr.String(), nil)
 		if err := plug.Handshake(username, password); err != nil {
+			if errors.Is(err, tapo.ErrAuthRejected) {
+				// Each rejected login counts toward the device lockout.
+				rejected.Store(addr, true)
+			}
 			log.Printf("Warning: handshake failed for %s: %v", addr, err)
 			failed = append(failed, addr)
 			continue

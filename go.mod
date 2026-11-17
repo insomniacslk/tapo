@@ -1,8 +1,6 @@
 module github.com/insomniacslk/tapo
 
-go 1.21.1
-
-toolchain go1.22.1
+go 1.24.0
 
 require (
 	github.com/eapache/channels v1.1.0
@@ -15,6 +13,7 @@ require (
 )
 
 require (
+	filippo.io/nistec v0.0.4
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect
 	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7 // indirect
@@ -26,5 +25,5 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
-	golang.org/x/sys v0.1.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
 )
